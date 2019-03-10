@@ -1,3 +1,5 @@
+#define NCM_DEFAULT_PORT 1991
+
 #ifndef __CONNECTOR__
 #define __CONNECTOR__
 

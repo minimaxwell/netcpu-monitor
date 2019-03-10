@@ -3,11 +3,14 @@
 
 #include "ui.h"
 #include "client.h"
+#include "connector.h"
+#include "stat.h"
 
 struct ncm_client *client_create(char *server_addr, uint32_t cpumap,
 				 enum ncm_direction dir, char *interface)
 {
 	struct ncm_client *c = NULL;
+	struct ncm_connector *con = NULL;
 
 	c = malloc(sizeof(*c));
 	if (!c)
@@ -16,6 +19,24 @@ struct ncm_client *client_create(char *server_addr, uint32_t cpumap,
 	memset(c, 0, sizeof(*c));
 
 	/* Create connector */
+	if (server_addr)
+		con = connector_create(NCM_NETWORK, server_addr,
+				       NCM_DEFAULT_PORT, c);
+	else
+		con = connector_create(NCM_LOCAL, NULL, 0, c);
+
+	if (!con) {
+		free(c);
+		c = NULL;
+	}
+
+	c->con = con;
+
+	/* We don't know yet how many CPUs there are on the server side */
+	c->params.n_cpus = -1;
+	c->params.cpu_map = cpumap;
+	c->params.dir = dir;
+	c->params.iface = interface;
 
 	return c;
 }

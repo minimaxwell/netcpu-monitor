@@ -6,9 +6,11 @@ struct ncm_server {
 	struct ncm_connector *con;
 };
 
-int run_server(bool fork_to_background)
+int run_server(bool local, bool fork_to_background)
 {
 	/* Init stuff, such as forking in BG */
+
+	/* Create connector */
 
 	/* Create monitors */
 

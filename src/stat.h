@@ -1,4 +1,5 @@
 #include<stdint.h>
+#include "netcpu-monitor.h"
 
 #ifndef __STAT__
 #define __STAT__
@@ -14,6 +15,8 @@ enum stat_type {
 struct ncm_parameters {
 	int n_cpus;
 	uint32_t cpu_map;
+	enum ncm_direction dir;
+	char *iface;
 };
 
 struct ncm_stat_pcpu_rxtx {

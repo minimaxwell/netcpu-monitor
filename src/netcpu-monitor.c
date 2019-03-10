@@ -41,6 +41,7 @@ int main(int argc, char **argv)
 	bool opt_server = false;
 	struct ncm_client *client = NULL;
 	struct ncm_ui *ui = NULL;
+	bool local = false;
 
 	int opt = 0;
 	int longopt_index = 0;
@@ -104,10 +105,10 @@ int main(int argc, char **argv)
 
 	/* Todo : local mode where client and server run on the same machine */
 	if (!opt_server && !opt_client_serveraddr)
-		goto print_help_and_quit;
+		local = true;
 
-	if (opt_server)
-		return run_server(opt_background);
+	if (opt_server || local)
+		return run_server(local, opt_background);
 
 	client = client_create(opt_client_serveraddr, opt_cpumap, opt_dir,
 			       opt_interface);
