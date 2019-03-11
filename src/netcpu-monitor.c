@@ -14,7 +14,7 @@
 #include "server.h"
 #include "ui.h"
 
-#define NCM_SHORTOPTS "DcC:d:i:ns"
+#define NCM_SHORTOPTS "Dc:C:d:i:ns"
 static const struct option long_options[] = {
 	{"background",	no_argument,		NULL,	'D'},
 	{"client",	required_argument,	NULL,	'c'},
@@ -126,7 +126,7 @@ int main(int argc, char **argv)
 	if (!ui)
 		return 1;
 
-	if (!client_attach_ui(client, ui))
+	if (client_attach_ui(client, ui))
 		return 1;
 
 	return client_run(client);

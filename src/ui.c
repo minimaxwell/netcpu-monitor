@@ -37,6 +37,8 @@ struct ncm_ui *ui_create(enum ui_type type)
 
 	memset(ui, 0, sizeof(*ui));
 
+	ui->ops = &uis[type];
+
 	return ui;
 }
 

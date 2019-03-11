@@ -60,6 +60,8 @@ int run_server(bool local, bool fork_to_background)
 		goto server_free;
 	}
 
+	s->con = con;
+
 	if (fork_to_background) {
 		pid = fork();
 		if (pid < 0) {

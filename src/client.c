@@ -1,5 +1,6 @@
 #include<stdlib.h>
 #include<string.h>
+#include<stdio.h>
 
 #include "ui.h"
 #include "client.h"
@@ -53,6 +54,11 @@ int client_run(struct ncm_client *c)
 	/* Main loop for client. Basically, wait refresh delay, get stats,
 	 * update ui, rinse and repeat.
 	 */
+
+	/* First, establish connection */
+	if (connector_connect(c->con)) {
+		fprintf(stderr, "Unable to connect to server\n");
+	}
 
 	return 0;
 }
