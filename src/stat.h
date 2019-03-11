@@ -12,13 +12,6 @@ enum stat_type {
 	NCM_N_STATS,
 };
 
-struct ncm_parameters {
-	int n_cpus;
-	uint32_t cpu_map;
-	enum ncm_direction dir;
-	char *iface;
-};
-
 struct ncm_stat_pcpu_rxtx {
 	int size;
 	uint32_t pcpu_pkts[0];
@@ -26,7 +19,12 @@ struct ncm_stat_pcpu_rxtx {
 
 struct ncm_stat {
 	enum stat_type type;
+	int size;
 	uint8_t buf[0];
+};
+
+struct ncm_stat_req {
+	enum stat_type type;
 };
 
 #endif

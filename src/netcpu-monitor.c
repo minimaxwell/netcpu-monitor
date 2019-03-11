@@ -41,7 +41,7 @@ int main(int argc, char **argv)
 {
 	bool opt_background = false;
 	char *opt_client_serveraddr = NULL;
-	uint32_t opt_cpumap = 0xffffffff;
+	uint64_t opt_cpumap = 0xffffffff;
 	enum ncm_direction opt_dir = NCM_DIR_INOUT;
 	char *opt_interface = NULL;
 	enum ui_type opt_ui_type = NCM_UI_CLI;

@@ -1,10 +1,12 @@
 #include<stdlib.h>
 #include<stdio.h>
 #include<unistd.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+#include<sys/types.h>
+#include<sys/socket.h>
+#include<netinet/in.h>
+#include<arpa/inet.h>
+#include<errno.h>
+#include<string.h>
 
 #include "connector.h"
 
@@ -22,7 +24,7 @@ static int connector_create_network_server(struct ncm_connector *con)
 	serv_addr.sin_family = AF_INET;
 
 	/* We might want to change that. */
-	serv_addr.sin_addr.s_addr = INADDR_ANY;
+	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
 	serv_addr.sin_port = htons(con->port);
 
 	if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
@@ -75,7 +77,7 @@ struct ncm_connector *connector_create(enum ncm_connector_type type, char *addr,
 	}
 
 	if (con->sockfd < 0) {
-		fprintf(stderr, "Not supported\n");
+		fprintf(stderr, "Error creating connector\n");
 		goto con_err;
 	}
 
@@ -84,6 +86,17 @@ struct ncm_connector *connector_create(enum ncm_connector_type type, char *addr,
 con_err:
 	free(con);
 	return NULL;
+}
+
+void connector_destroy(struct ncm_connector *con)
+{
+	if (con->confd >= 0)
+		close(con->confd);
+
+	if (con->type == NCM_NETWORK_SERVER && con->sockfd >= 0)
+		close(con->sockfd);
+
+	free(con);
 }
 
 /* Blocking until connection is established */
@@ -98,19 +111,27 @@ int connector_connect(struct ncm_connector *con)
 
 	} else if (con->type == NCM_NETWORK_CLIENT) {
 		struct sockaddr_in serv_addr;
+		int ret;
 
 		serv_addr.sin_family = AF_INET;
 		serv_addr.sin_addr.s_addr = inet_addr(con->addr);
 		serv_addr.sin_port = htons(con->port);
 
-		con->confd = connect(con->sockfd, (struct sockaddr *)&serv_addr,
+		ret = connect(con->sockfd, (struct sockaddr *)&serv_addr,
 				     sizeof(serv_addr));
+		if (ret)
+			con->confd = ret;
+		else
+			con->confd = con->sockfd;
 	} else {
+		fprintf(stderr, "Not implemented\n");
 		/* not imp */
 	}
 
 	if (con->confd < 0)
 		return con->confd;
+
+	fprintf(stdout, "connection fd is %d\n", con->confd);
 
 	con->status = true;
 
@@ -129,8 +150,11 @@ int connector_send(struct ncm_connector *con, struct ncm_message *msg)
 	if (con->confd < 0)
 		return -1;
 
-	n = write(con->confd, msg, sizeof(*msg) + msg->len);
-	if (n < sizeof(*msg) + msg->len) {
+	n = send(con->confd, msg, sizeof(*msg) + msg->len, 0);
+	if (n < 0) {
+		fprintf(stderr, "Error sending message : %s\n", strerror(errno));
+		return -1;
+	} else if (n < sizeof(*msg) + msg->len) {
 		fprintf(stderr, "Packet not fully written, we have a problem\n");
 		return -1;
 	}
@@ -146,12 +170,19 @@ struct ncm_message *connector_receive(struct ncm_connector *con)
 
 	/* Allocate only the header */
 	msg_head = malloc(sizeof(*msg_head));
-	if (!msg)
+	if (!msg_head)
 		return NULL;
 
-	n = read(con->confd, msg, sizeof(*msg_head));
+	n = recv(con->confd, msg_head, sizeof(*msg_head), 0);
+	if (n == 0)
+		goto disconnect;
+
 	if (n != sizeof(*msg_head))
 		goto err;
+
+	/* If there's no message body, we're done */
+	if (msg_head->len == 0)
+		return msg_head;
 
 	/* Probably has security issues */
 	msg = realloc(msg_head, sizeof(*msg_head) + msg_head->len);
@@ -161,14 +192,21 @@ struct ncm_message *connector_receive(struct ncm_connector *con)
 	if (!msg)
 		goto err;
 
-	n = read(con->confd, msg->buf, msg->len);
-	if (n != msg->len) {
-		fprintf(stderr, "Message body of unexpected size (expect %d, got %d)\n",
-			msg->len, n);
+	n = recv(con->confd, msg->buf, msg->len, 0);
+	if (n == 0)
+		goto disconnect;
+
+	if (n != msg->len)
 		goto err;
-	}
 
 	return msg;
+
+disconnect:
+
+	con->status = false;
+
+	if (con->type == NCM_NETWORK_SERVER)
+		close(con->confd);
 
 err:
 	free(msg_head);

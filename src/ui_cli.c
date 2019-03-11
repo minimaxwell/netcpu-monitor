@@ -1,47 +1,69 @@
 #include<stdio.h>
+#include<unistd.h>
+#include<signal.h>
 
 #include "ui_cli.h"
+#include "client.h"
 #include "ui.h"
 
-static void ui_cli_on_pcpu_rx_update(struct ncm_ui *ui,
-				     struct ncm_stat_pcpu_rxtx *rxtx)
-{
-	int i;
+volatile sig_atomic_t ui_cli_stop = 0;
 
-	for (i = 0; i < rxtx->size; i++)
-		fprintf(stdout, "RX CPU %d : %u\n", i, rxtx->pcpu_pkts[i]);
-}
-
-static void ui_cli_on_pcpu_tx_update(struct ncm_ui *ui,
-				     struct ncm_stat_pcpu_rxtx *rxtx)
-{
-
+void ui_cli_sigint_handler(int signal) {
+	ui_cli_stop = 1;
 }
 
 int ui_cli_init(struct ncm_ui *ui)
 {
-	return 0;
+	struct sigaction sa;
+
+	sa.sa_handler = &ui_cli_sigint_handler;
+	sa.sa_flags = SA_RESTART;
+	sigfillset(&sa.sa_mask);
+
+	return sigaction(SIGINT, &sa, NULL);
 }
 
 void ui_cli_destroy(struct ncm_ui *ui)
 {
-
+	return;
 }
 
-void ui_cli_on_params_update(struct ncm_ui *ui, struct ncm_parameters *params)
+static void ui_cli_display_rxtx(struct ncm_ui *ui,
+				struct ncm_stat_pcpu_rxtx *rxtx, bool rx)
 {
-	fprintf(stdout, "New params : n_cpus = %d, cpu_map = 0x%08x\n",
-		params->n_cpus, params->cpu_map);
+	int i;
+	for (i = 0; i < rxtx->size; i++)
+		fprintf(stdout, "%s CPU %d : %u\n", rx ? "RX" : "TX", i,
+			rxtx->pcpu_pkts[i]);
 }
 
-void ui_cli_on_connect(struct ncm_ui *ui)
+int ui_cli_main(struct ncm_ui *ui)
 {
-	fprintf(stdout, "%s\n", __func__);
+	struct ncm_stat_pcpu_rxtx *rx = NULL, *tx = NULL;
+	int ret = 0;
 
+	while (client_is_connected(ui->client) && !ui_cli_stop) {
+
+		rx = client_get_pcpu_stat(ui->client, true);
+		if (!rx)
+			break;
+
+		if (ui_cli_stop)
+			break;
+
+		tx = client_get_pcpu_stat(ui->client, false);
+		if (!tx)
+			break;
+
+		if (ui_cli_stop)
+			break;
+
+		ui_cli_display_rxtx(ui, rx, true);
+		ui_cli_display_rxtx(ui, tx, false);
+
+		usleep(1000000);
+
+	}
+
+	return ret;
 }
-
-void ui_cli_on_disconnect(struct ncm_ui *ui)
-{
-	fprintf(stdout, "%s\n", __func__);
-}
-
