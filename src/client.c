@@ -20,10 +20,10 @@ struct ncm_client *client_create(char *server_addr, uint32_t cpumap,
 
 	/* Create connector */
 	if (server_addr)
-		con = connector_create(NCM_NETWORK, server_addr,
-				       NCM_DEFAULT_PORT, c);
+		con = connector_create(NCM_NETWORK_CLIENT, server_addr,
+				       NCM_DEFAULT_PORT);
 	else
-		con = connector_create(NCM_LOCAL, NULL, 0, c);
+		con = connector_create(NCM_LOCAL, NULL, 0);
 
 	if (!con) {
 		free(c);
@@ -50,8 +50,9 @@ int client_attach_ui(struct ncm_client *c, struct ncm_ui *ui)
 
 int client_run(struct ncm_client *c)
 {
-	/* Main loop for client. blocking poll/select on connector. Signal
-	 * handlers must be registered by ui. */
+	/* Main loop for client. Basically, wait refresh delay, get stats,
+	 * update ui, rinse and repeat.
+	 */
 
 	return 0;
 }
