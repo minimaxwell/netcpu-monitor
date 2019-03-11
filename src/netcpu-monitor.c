@@ -28,6 +28,13 @@ static const struct option long_options[] = {
 void print_help(void)
 {
 	fprintf(stdout, "netcpu-monitor : Monitor CPU activity due to networking\n");
+	fprintf(stdout, "\tUsage : netcpu [options] \n");
+	fprintf(stdout, "\t\t -D : Daemon mode (only available in server mode)\n");
+	fprintf(stdout, "\t\t -c <server address> : Run in client mode, connect to server at the given address\n");
+	fprintf(stdout, "\t\t -C <cpu_map> : Specify the cpu map to listen to (one bit per cpu)\n");
+	fprintf(stdout, "\t\t -d <direction> : Specify the direction to listen : 'in', 'out' or 'inout'\n");
+	fprintf(stdout, "\t\t -n : Use ncurses interface (not available in server mode)");
+	fprintf(stdout, "\t\t -s : Run in server mode, listens on port 1991\n");
 }
 
 int main(int argc, char **argv)
