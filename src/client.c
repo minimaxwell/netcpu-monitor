@@ -56,11 +56,15 @@ static int client_get_srv_parameters(struct ncm_client *c,
 				      struct ncm_parameters *p)
 {
 	struct ncm_message msg, *response;
-	int ret = 0;
+	int ret;
 
 	msg.type = NCM_MSG_GET_PARAMS;
 	msg.len = 0;
 	ret = connector_send(c->con, &msg);
+	if (ret) {
+		fprintf(stderr, "Error sending get_params request\n");
+		return ret;
+	}
 
 	response = connector_receive(c->con);
 	if (!response)
@@ -135,7 +139,6 @@ static struct ncm_stat *client_get_srv_stat(struct ncm_client *c,
 	struct ncm_message *msg, *response;
 	struct ncm_stat_req *req;
 	struct ncm_stat *stat = NULL;
-	size_t stat_size;
 	int ret = 0;
 
 	msg = malloc(sizeof(*msg) + sizeof(*req));
@@ -179,18 +182,20 @@ err_req:
 	return stat;
 }
 
-struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c, bool rx)
+struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c)
 {
 	struct ncm_stat_pcpu_rxtx *rxtx_stat = NULL;
 	struct ncm_stat *stat = NULL;
 
-	if (rx)
-		stat = client_get_srv_stat(c, NCM_STAT_PCPU_RX);
-	else
-		stat = client_get_srv_stat(c, NCM_STAT_PCPU_TX);
+	stat = client_get_srv_stat(c, NCM_STAT_PCPU_RXTX);
 
 	if (!stat)
 		return NULL;
+
+	if (stat->type != NCM_STAT_PCPU_RXTX) {
+		fprintf(stderr, "Unexpected stat type returned\n");
+		goto err;
+	}
 
 	rxtx_stat = malloc(sizeof(*rxtx_stat) + stat->size);
 	if (!rxtx_stat)
@@ -208,7 +213,6 @@ int client_run(struct ncm_client *c)
 	/* Main loop for client. Basically, wait refresh delay, get stats,
 	 * update ui, rinse and repeat.
 	 */
-	bool stop = false;
 	int ret;
 
 	/* First, establish connection */

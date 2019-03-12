@@ -27,6 +27,6 @@ int client_stop_srv_cap(struct ncm_client *c);
 bool client_is_connected(struct ncm_client *c);
 
 /* Stats accessors */
-struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c, bool rx);
+struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c);
 
 #endif

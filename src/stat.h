@@ -1,20 +1,25 @@
-#include<stdint.h>
-#include "netcpu-monitor.h"
-
 #ifndef __STAT__
 #define __STAT__
 
+#include<stdint.h>
+#include "netcpu-monitor.h"
+
 enum stat_type {
-	NCM_STAT_PCPU_RX,
-	NCM_STAT_PCPU_TX,
+	NCM_STAT_NONE = 0,
+	NCM_STAT_PCPU_RXTX,
 
 	/* Last stat */
 	NCM_N_STATS,
 };
 
+struct ncm_stats_pcpu_rxtx_entry {
+	uint32_t rx;
+	uint32_t tx;
+};
+
 struct ncm_stat_pcpu_rxtx {
 	int size;
-	uint32_t pcpu_pkts[0];
+	struct ncm_stats_pcpu_rxtx_entry pcpu_pkts[0];
 };
 
 struct ncm_stat {

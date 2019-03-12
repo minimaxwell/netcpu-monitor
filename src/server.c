@@ -15,6 +15,7 @@
 struct ncm_server {
 	struct ncm_connector *con;
 	struct ncm_parameters params;
+	struct ncm_monitor *mon;
 };
 
 volatile sig_atomic_t server_stop = 0;
@@ -24,7 +25,7 @@ static void server_set_params(struct ncm_server *s, struct ncm_parameters *p)
 	s->params.cpu_map &= p->cpu_map;
 
 	/* Only one interface watched at a time for now */
-	strncpy(s->params.iface, p->iface, 15);
+	strncpy(s->params.iface, p->iface, 16);
 
 	/* Reconfigure monitors if necessary */
 }
@@ -47,31 +48,37 @@ static void server_get_params(struct ncm_server *s)
 
 static void server_start_cap(struct ncm_server *s, struct ncm_parameters *p)
 {
-	fprintf(stdout, "Starting cap\n");
+	if (ncm_monitor_start_cap(s->mon, p))
+		fprintf(stderr, "Error starting capture\n");
 }
 
 static void server_stop_cap(struct ncm_server *s, struct ncm_parameters *p)
 {
-	fprintf(stdout, "Stopping cap\n");
+	if (ncm_monitor_stop_cap(s->mon))
+		fprintf(stderr, "Error stop capture\n");
 }
 
-static struct ncm_stat *server_get_stat_pcpu_rxtx(struct ncm_server *s, bool rx)
+static struct ncm_stat *server_get_stat_pcpu_rxtx(struct ncm_server *s)
 {
 	struct ncm_stat_pcpu_rxtx *rxtx;
 	struct ncm_stat *stat;
-	int i;
 
-	stat = malloc(sizeof(*stat) + sizeof(*rxtx) + s->params.n_cpus * sizeof(uint32_t));
-	if (!stat)
+	rxtx = ncm_monitor_snapshot(s->mon);
+	if (!rxtx) {
+		fprintf(stderr, "Error taking stats snapshot\n");
 		return NULL;
+	}
 
-	rxtx = (struct ncm_stat_pcpu_rxtx *)stat->buf;
-	rxtx->size = s->params.n_cpus;
-	stat->size = sizeof(*rxtx) + rxtx->size * sizeof(uint32_t);
+	stat = malloc(sizeof(*stat) + sizeof(*rxtx) + rxtx->size * sizeof(struct ncm_stats_pcpu_rxtx_entry));
+	if (!stat)
+		goto clean_stat;
 
-	/* Stub */
-	for (i = 0; i < rxtx->size; i++)
-		rxtx->pcpu_pkts[i] = i + 18;
+	stat->type = NCM_STAT_PCPU_RXTX;
+	stat->size = sizeof(*rxtx) + rxtx->size * sizeof(struct ncm_stats_pcpu_rxtx_entry);
+	memcpy(stat->buf, rxtx, stat->size);
+
+clean_stat:
+	free(rxtx);
 
 	return stat;
 }
@@ -82,11 +89,8 @@ static void server_get_stat(struct ncm_server *s, struct ncm_stat_req *req)
 	struct ncm_stat *stat;
 
 	switch (req->type) {
-	case NCM_STAT_PCPU_RX:
-		stat = server_get_stat_pcpu_rxtx(s, true);
-		break;
-	case NCM_STAT_PCPU_TX:
-		stat = server_get_stat_pcpu_rxtx(s, true);
+	case NCM_STAT_PCPU_RXTX:
+		stat = server_get_stat_pcpu_rxtx(s);
 		break;
 	default:
 		return;
@@ -154,12 +158,13 @@ static int server_main_loop(struct ncm_server *s)
 		}
 
 	}
+
+	return 0;
 }
 
 static int server_get_cpu_params(struct ncm_server *s)
 {
 	cpu_set_t cpu_map;
-	size_t cpu_map_len;
 	int ret = 0, i;
 
 	CPU_ZERO(&cpu_map);
@@ -231,7 +236,7 @@ int run_server(bool local, bool fork_to_background)
 	}
 
 	sa.sa_handler = &server_sigint_handler;
-	// sa.sa_flags = SA_RESTART;
+	sa.sa_flags = 0;
 	sigfillset(&sa.sa_mask);
 
 	if (sigaction(SIGINT, &sa, NULL))
@@ -240,9 +245,14 @@ int run_server(bool local, bool fork_to_background)
 	if (server_get_cpu_params(s))
 		goto server_free;
 
+	s->mon = monitor_create(s->params.n_cpus);
+	if (!s->mon)
+		goto server_free;
+
 	ret = server_main_loop(s);
 
 	connector_destroy(s->con);
+	monitor_destroy(s->mon);
 
 server_free:
 	free(s);

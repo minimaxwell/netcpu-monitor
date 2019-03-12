@@ -39,7 +39,6 @@ static int connector_create_network_server(struct ncm_connector *con)
 
 static int connector_create_network_client(struct ncm_connector *con)
 {
-	struct sockaddr_in serv_addr;
 	int sockfd = 0;
 
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);

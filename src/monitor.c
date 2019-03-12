@@ -15,6 +15,7 @@
 #include<string.h>
 
 #include "monitor.h"
+#include "stat.h"
 
 struct ncm_monitor_worker {
 	int fd;
@@ -29,6 +30,7 @@ struct ncm_monitor_worker {
 
 	uint32_t rx_counter;
 	uint32_t tx_counter;
+	bool alive;
 	bool run;
 };
 
@@ -48,13 +50,17 @@ void *worker_main_loop(void *priv)
 	unsigned int sll_length = sizeof(sll);
 	int len;
 
-	while (w->run) {
+	while (w->alive) {
 		/* Wait to be activated. We must only be activated when we have
 		 * a valid fd from which we can listen to.
 		 */
 		sem_wait(&w->thread_sem);
+		if (!w->alive)
+			goto done;
+
 		if (!w->run)
-			break;
+			continue;
+
 
 		len = recvfrom(w->fd, packet_buffer, sizeof(packet_buffer), 0,
 			       (struct sockaddr *)&sll, &sll_length);
@@ -88,6 +94,8 @@ static int worker_init(struct ncm_monitor_worker *w, int cpu)
 	memset(w, 0, sizeof(*w));
 
 	w->cpu = cpu;
+	w->alive = true;
+	w->run = false;
 
 	/* Initialize the resource mutex */
 	pthread_mutexattr_init(&mutex_attr);
@@ -101,11 +109,14 @@ static int worker_init(struct ncm_monitor_worker *w, int cpu)
 	CPU_SET(cpu, &cpu_set);
 
 	/* Attach the thread to the given core */
+	pthread_attr_init(&thread_attr);
 	ret = pthread_attr_setaffinity_np(&thread_attr, sizeof(cpu_set), &cpu_set);
 	if (ret)
 		return ret;
 
 	ret = pthread_create(&w->thread_id, &thread_attr, worker_main_loop, w);
+
+	pthread_attr_destroy(&thread_attr);
 
 	return ret;
 }
@@ -156,7 +167,7 @@ err_fd:
 
 static void worker_cleanup(struct ncm_monitor_worker *w)
 {
-	w->run = false;
+	w->alive = false;
 	sem_post(&w->thread_sem);
 
 	pthread_join(w->thread_id, NULL);
@@ -169,24 +180,24 @@ static void worker_cleanup(struct ncm_monitor_worker *w)
 
 static int worker_start(struct ncm_monitor_worker *w)
 {
-	sem_post(&w->thread_sem);
+	w->rx_counter = 0;
+	w->tx_counter = 0;
+	w->run = true;
+	return sem_post(&w->thread_sem);
 }
 
 static int worker_stop(struct ncm_monitor_worker *w)
 {
-	/* Let the worker finish its job, then prevent it from going any
-	 * further. This will block until the worker is done, so that we can
-	 * then safely fiddle around with the listening fd.
-	 */
-	sem_wait(&w->thread_sem);
+	w->run = false;
+	return 0;
 }
 
 static void worker_snap_and_reset(struct ncm_monitor_worker *w,
-				  uint32_t *rx, uint32_t *tx)
+				  struct ncm_stats_pcpu_rxtx_entry *entry)
 {
 	pthread_mutex_lock(&w->thread_mutex);
-	*rx = w->rx_counter;
-	*tx = w->tx_counter;
+	entry->rx = w->rx_counter;
+	entry->tx = w->tx_counter;
 
 	w->rx_counter = 0;
 	w->tx_counter = 0;
@@ -224,6 +235,11 @@ free_mon:
 
 void monitor_destroy(struct ncm_monitor *mon)
 {
+	int i;
+
+	for (i = 0; i < mon->n_workers; i++)
+		worker_cleanup(&mon->workers[i]);
+
 	free(mon->workers);
 	free(mon);
 }
@@ -250,6 +266,10 @@ int ncm_monitor_start_cap(struct ncm_monitor *mon, struct ncm_parameters *params
 {
 	unsigned int if_id;
 	int i, ret;
+
+	fprintf(stdout, "Asked capture on %s\n", params->iface);
+
+	strncpy(mon->iface, params->iface, 16);
 
 	if_id = if_nametoindex(params->iface);
 	if (!if_id)
@@ -278,15 +298,45 @@ int ncm_monitor_start_cap(struct ncm_monitor *mon, struct ncm_parameters *params
 			fprintf(stderr, "Error starting worker %d\n", i);
 		}
 	}
+
+	return 0;
 }
 
 struct ncm_stat_pcpu_rxtx *ncm_monitor_snapshot(struct ncm_monitor *mon)
 {
+	struct ncm_stat_pcpu_rxtx *rxtx = NULL;
+	int i;
 
+	rxtx = malloc(sizeof(*rxtx) + mon->n_workers * sizeof(struct ncm_stats_pcpu_rxtx_entry));
+	if (!rxtx)
+		return NULL;
+
+	rxtx->size = mon->n_workers;
+
+	for (i = 0; i < mon->n_workers; i++) {
+		worker_snap_and_reset(&mon->workers[i], &rxtx->pcpu_pkts[i]);
+	}
+
+	return rxtx;
 }
 
 int ncm_monitor_stop_cap(struct ncm_monitor *mon)
 {
+	struct ncm_monitor_worker *w = NULL;
+	int i;
+
+	for (i = 0; i < mon->n_workers; i++) {
+		w = &mon->workers[i];
+		if (!w->run)
+			continue;
+
+		if (worker_stop(w))
+			fprintf(stderr, "Error stopping worker %d\n", i);
+		else
+			close(w->fd);
+	}
 
 	close(mon->promisc_fd);
+
+	return 0;
 }

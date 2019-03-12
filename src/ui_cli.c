@@ -29,47 +29,62 @@ void ui_cli_destroy(struct ncm_ui *ui)
 	return;
 }
 
-static void ui_cli_display_rxtx(struct ncm_ui *ui,
-				struct ncm_stat_pcpu_rxtx *rxtx, bool rx)
+static void ui_cli_display_header(struct ncm_ui *ui, int n_cpu)
 {
 	int i;
+	fprintf(stdout, "CPU");
+
+	for (i = 0; i < n_cpu; i++)
+		fprintf(stdout, "\t%d", i);
+
+	fprintf(stdout, "\n");
+}
+
+static void ui_cli_display_rxtx(struct ncm_ui *ui,
+				struct ncm_stat_pcpu_rxtx *rxtx)
+{
+	int i;
+
+	fprintf(stdout, "RX/TX");
 	for (i = 0; i < rxtx->size; i++)
-		fprintf(stdout, "%s CPU %d : %u\n", rx ? "RX" : "TX", i,
-			rxtx->pcpu_pkts[i]);
+		fprintf(stdout, "\t%u/%u", rxtx->pcpu_pkts[i].rx, rxtx->pcpu_pkts[i].tx);
+	fprintf(stdout, "\n");
 }
 
 int ui_cli_main(struct ncm_ui *ui)
 {
-	struct ncm_stat_pcpu_rxtx *rx = NULL, *tx = NULL;
+	struct ncm_stat_pcpu_rxtx *rxtx = NULL;
 	int ret = 0;
+
+	ret = client_start_srv_cap(ui->client);
+	if (ret) {
+		fprintf(stderr, "Can't start acquisition\n");
+		return ret;
+	}
+
+	ui_cli_display_header(ui, ui->client->params.n_cpus);
 
 	while (client_is_connected(ui->client) && !ui_cli_stop) {
 
-		rx = client_get_pcpu_stat(ui->client, true);
-		if (!rx)
+		rxtx = client_get_pcpu_stat(ui->client);
+		if (!rxtx)
 			continue;
 
 		if (ui_cli_stop)
 			goto clean;
 
-		tx = client_get_pcpu_stat(ui->client, false);
-		if (!tx)
-			goto clean;
-
-		if (ui_cli_stop)
-			goto clean;
-
-		ui_cli_display_rxtx(ui, rx, true);
-		ui_cli_display_rxtx(ui, tx, false);
+		ui_cli_display_rxtx(ui, rxtx);
 
 		usleep(1000000);
 clean:
-		if (rx)
-			free(rx);
-		if(tx)
-			free(tx);
+		if (rxtx)
+			free(rxtx);
 
 	}
+
+	ret = client_stop_srv_cap(ui->client);
+	if (ret)
+		fprintf(stderr, "Can't stop acquisition\n");
 
 	return ret;
 }
