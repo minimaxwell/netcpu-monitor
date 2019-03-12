@@ -48,8 +48,9 @@ struct ncm_client *client_create(char *server_addr, uint64_t cpumap,
 int client_attach_ui(struct ncm_client *c, struct ncm_ui *ui)
 {
 	c->ui = ui;
+	ui->client = c;
 
-	return ui_init(ui, c);
+	return 0;
 }
 
 static int client_get_srv_parameters(struct ncm_client *c,

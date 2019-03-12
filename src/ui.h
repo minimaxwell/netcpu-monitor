@@ -21,6 +21,7 @@ struct ui_ops {
 	int (*init)(struct ncm_ui *ui);
 	void (*destroy)(struct ncm_ui *ui);
 	int (*main)(struct ncm_ui *ui);
+	int (*set_param)(struct ncm_ui *ui, void *param);
 };
 
 struct ncm_ui {
@@ -31,8 +32,9 @@ struct ncm_ui {
 };
 
 struct ncm_ui *ui_create(enum ui_type);
-int ui_init(struct ncm_ui *ui, struct ncm_client *c);
+int ui_init(struct ncm_ui *ui);
 void ui_destroy(struct ncm_ui *ui);
 int ui_run(struct ncm_ui *ui);
+int ui_set_param(struct ncm_ui *ui, void *param);
 
 #endif

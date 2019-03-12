@@ -14,7 +14,7 @@
 #include "server.h"
 #include "ui.h"
 
-#define NCM_SHORTOPTS "Dc:C:d:i:ns"
+#define NCM_SHORTOPTS "Dc:C:d:i:no:s"
 static const struct option long_options[] = {
 	{"background",	no_argument,		NULL,	'D'},
 	{"client",	required_argument,	NULL,	'c'},
@@ -22,6 +22,7 @@ static const struct option long_options[] = {
 	{"direction",	required_argument,	NULL,	'd'},
 	{"interface",	required_argument,	NULL,	'i'},
 	{"ncurses",	no_argument,		NULL,	'n'},
+	{"oneshot",	required_argument,	NULL,	'o'},
 	{"server",	no_argument,		NULL,	's'},
 };
 
@@ -34,6 +35,7 @@ void print_help(void)
 	fprintf(stdout, "\t\t -C <cpu_map> : Specify the cpu map to listen to (one bit per cpu)\n");
 	fprintf(stdout, "\t\t -d <direction> : Specify the direction to listen : 'in', 'out' or 'inout'\n");
 	fprintf(stdout, "\t\t -n : Use ncurses interface (not available in server mode)");
+	fprintf(stdout, "\t\t -o <start|stop|snapshot> : Oneshot client mode.\n");
 	fprintf(stdout, "\t\t -s : Run in server mode, listens on port 1991\n");
 }
 
@@ -46,6 +48,7 @@ int main(int argc, char **argv)
 	char *opt_interface = NULL;
 	enum ui_type opt_ui_type = NCM_UI_CLI;
 	bool opt_server = false;
+	char *opt_oneshot = NULL;
 	struct ncm_client *client = NULL;
 	struct ncm_ui *ui = NULL;
 	bool local = false;
@@ -97,6 +100,10 @@ int main(int argc, char **argv)
 		case 'n' :
 			opt_ui_type = NCM_UI_NCURSES;
 			break;
+		case 'o' :
+			opt_ui_type = NCM_UI_ONESHOT;
+			opt_oneshot = optarg;
+			break;
 		case 's' :
 			opt_server = true;
 			break;
@@ -125,6 +132,10 @@ int main(int argc, char **argv)
 	ui = ui_create(opt_ui_type);
 	if (!ui)
 		return 1;
+
+	/* Not really clean but meh */
+	if (opt_oneshot)
+		ui_set_param(ui, opt_oneshot);
 
 	if (client_attach_ui(client, ui))
 		return 1;
