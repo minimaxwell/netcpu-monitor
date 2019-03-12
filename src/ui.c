@@ -5,6 +5,7 @@
 #include "netcpu-monitor.h"
 #include "ui.h"
 #include "ui_cli.h"
+#include "ui_ncurses.h"
 #include "ui_oneshot.h"
 #include "client.h"
 
@@ -14,7 +15,11 @@ struct ui_ops uis[NCM_N_UIS] = {
 		.destroy = ui_cli_destroy,
 		.main = ui_cli_main,
 	},
-	{}, /* ncurses */
+	{
+		.init = ui_ncurses_init,
+		.destroy = ui_ncurses_destroy,
+		.main = ui_ncurses_main,
+	}, /* ncurses */
 	{
 		.init = ui_oneshot_init,
 		.destroy = ui_oneshot_destroy,
