@@ -52,24 +52,6 @@ int client_attach_ui(struct ncm_client *c, struct ncm_ui *ui)
 	return ui_init(ui, c);
 }
 
-static int client_set_srv_parameters(struct ncm_client *c,
-				     struct ncm_parameters *p)
-{
-	struct ncm_message *msg;
-	int ret = 0;
-
-	msg = malloc(sizeof(*msg) + sizeof(*p));
-	msg->type = NCM_MSG_SET_PARAMS;
-	msg->len = sizeof(*p);
-	memcpy(msg->buf, p, sizeof(*p));
-
-	ret = connector_send(c->con, msg);
-
-	free(msg);
-
-	return ret;
-}
-
 static int client_get_srv_parameters(struct ncm_client *c,
 				      struct ncm_parameters *p)
 {
@@ -100,36 +82,51 @@ static int client_get_srv_parameters(struct ncm_client *c,
 int client_sync_params(struct ncm_client *c)
 {
 	int ret;
-
-	/* Tell the server what parameters the user required*/
-	ret = client_set_srv_parameters(c, &c->params);
-	if (ret)
-		return -1;
+	struct ncm_parameters params;
 
 	/* Recover the parameters, to get the real server config */
-	ret = client_get_srv_parameters(c, &c->params);
+	ret = client_get_srv_parameters(c, &params);
 	if (ret)
 		return -1;
+
+	c->params.n_cpus = params.n_cpus;
+	c->params.cpu_map &= params.cpu_map;
 
 	return ret;
 }
 
 int client_start_srv_cap(struct ncm_client *c)
 {
-	struct ncm_message msg;
+	struct ncm_message *msg;
+	int ret;
 
-	msg.type = NCM_MSG_START_CAP;
-	msg.len = 0;
-	return connector_send(c->con, &msg);
+	msg = malloc(sizeof(*msg) + sizeof(c->params));
+	msg->type = NCM_MSG_START_CAP;
+	msg->len = sizeof(c->params);
+	memcpy(msg->buf, &c->params, sizeof(c->params));
+
+	ret = connector_send(c->con, msg);
+
+	free(msg);
+
+	return ret;
 }
 
 int client_stop_srv_cap(struct ncm_client *c)
 {
-	struct ncm_message msg;
+	struct ncm_message *msg;
+	int ret;
 
-	msg.type = NCM_MSG_STOP_CAP;
-	msg.len = 0;
-	return connector_send(c->con, &msg);
+	msg = malloc(sizeof(*msg) + sizeof(c->params));
+	msg->type = NCM_MSG_STOP_CAP;
+	msg->len = sizeof(c->params);
+	memcpy(msg->buf, &c->params, sizeof(c->params));
+
+	ret = connector_send(c->con, msg);
+
+	free(msg);
+
+	return ret;
 }
 
 static struct ncm_stat *client_get_srv_stat(struct ncm_client *c,
@@ -137,7 +134,7 @@ static struct ncm_stat *client_get_srv_stat(struct ncm_client *c,
 {
 	struct ncm_message *msg, *response;
 	struct ncm_stat_req *req;
-	struct ncm_stat *stat;
+	struct ncm_stat *stat = NULL;
 	size_t stat_size;
 	int ret = 0;
 

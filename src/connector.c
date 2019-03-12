@@ -131,8 +131,6 @@ int connector_connect(struct ncm_connector *con)
 	if (con->confd < 0)
 		return con->confd;
 
-	fprintf(stdout, "connection fd is %d\n", con->confd);
-
 	con->status = true;
 
 	return 0;
@@ -153,6 +151,7 @@ int connector_send(struct ncm_connector *con, struct ncm_message *msg)
 	n = send(con->confd, msg, sizeof(*msg) + msg->len, 0);
 	if (n < 0) {
 		fprintf(stderr, "Error sending message : %s\n", strerror(errno));
+		con->status = false;
 		return -1;
 	} else if (n < sizeof(*msg) + msg->len) {
 		fprintf(stderr, "Packet not fully written, we have a problem\n");

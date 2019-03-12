@@ -45,12 +45,12 @@ static void server_get_params(struct ncm_server *s)
 	free(msg);
 }
 
-static void server_start_cap(struct ncm_server *s)
+static void server_start_cap(struct ncm_server *s, struct ncm_parameters *p)
 {
 	fprintf(stdout, "Starting cap\n");
 }
 
-static void server_stop_cap(struct ncm_server *s)
+static void server_stop_cap(struct ncm_server *s, struct ncm_parameters *p)
 {
 	fprintf(stdout, "Stopping cap\n");
 }
@@ -137,10 +137,10 @@ static int server_main_loop(struct ncm_server *s)
 				server_get_params(s);
 				break;
 			case NCM_MSG_START_CAP :
-				server_start_cap(s);
+				server_start_cap(s, (struct ncm_parameters *) msg->buf);
 				break;
 			case NCM_MSG_STOP_CAP :
-				server_stop_cap(s);
+				server_stop_cap(s, (struct ncm_parameters *) msg->buf);
 				break;
 			case NCM_MSG_GET_STAT :
 				server_get_stat(s, (struct ncm_stat_req *) msg->buf);
@@ -231,7 +231,7 @@ int run_server(bool local, bool fork_to_background)
 	}
 
 	sa.sa_handler = &server_sigint_handler;
-	sa.sa_flags = SA_RESTART;
+	// sa.sa_flags = SA_RESTART;
 	sigfillset(&sa.sa_mask);
 
 	if (sigaction(SIGINT, &sa, NULL))

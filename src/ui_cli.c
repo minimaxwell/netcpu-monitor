@@ -1,4 +1,5 @@
 #include<stdio.h>
+#include<stdlib.h>
 #include<unistd.h>
 #include<signal.h>
 
@@ -46,22 +47,27 @@ int ui_cli_main(struct ncm_ui *ui)
 
 		rx = client_get_pcpu_stat(ui->client, true);
 		if (!rx)
-			break;
+			continue;
 
 		if (ui_cli_stop)
-			break;
+			goto clean;
 
 		tx = client_get_pcpu_stat(ui->client, false);
 		if (!tx)
-			break;
+			goto clean;
 
 		if (ui_cli_stop)
-			break;
+			goto clean;
 
 		ui_cli_display_rxtx(ui, rx, true);
 		ui_cli_display_rxtx(ui, tx, false);
 
 		usleep(1000000);
+clean:
+		if (rx)
+			free(rx);
+		if(tx)
+			free(tx);
 
 	}
 

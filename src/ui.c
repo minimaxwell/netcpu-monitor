@@ -39,7 +39,8 @@ int ui_init(struct ncm_ui *ui, struct ncm_client *c)
 void ui_destroy(struct ncm_ui *ui) {
 	switch(ui->type) {
 	case NCM_UI_CLI:
-		return ui_cli_destroy(ui);
+		ui_cli_destroy(ui);
+		break;
 	case NCM_UI_NCURSES:
 	case NCM_UI_ONESHOT_START:
 	case NCM_UI_ONESHOT_STOP:
