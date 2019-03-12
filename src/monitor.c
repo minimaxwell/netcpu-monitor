@@ -7,7 +7,11 @@
 #include<pthread.h>
 #include<semaphore.h>
 #include<linux/if_packet.h>
+#include<linux/if.h>
 #include<sys/socket.h>
+#include<sys/time.h>
+#include<net/ethernet.h>
+#include<arpa/inet.h>
 #include<string.h>
 
 #include "monitor.h"
@@ -26,11 +30,11 @@ struct ncm_monitor_worker {
 	uint32_t rx_counter;
 	uint32_t tx_counter;
 	bool run;
-}
+};
 
 struct ncm_monitor {
 	char iface[16];
-	int promisc_fd:
+	int promisc_fd;
 	int fanout_group;
 	int n_workers;
 	struct ncm_monitor_worker *workers;
@@ -40,8 +44,8 @@ void *worker_main_loop(void *priv)
 {
 	unsigned char packet_buffer[65535];
 	struct ncm_monitor_worker *w = priv;
-	unsigned int sll_length = sizeof(sll)
 	struct sockaddr_ll sll;
+	unsigned int sll_length = sizeof(sll);
 	int len;
 
 	while (w->run) {
@@ -59,7 +63,7 @@ void *worker_main_loop(void *priv)
 
 		pthread_mutex_lock(&w->thread_mutex);
 
-		if (ssl->sll_pkttype == PACKET_OUTGOING)
+		if (sll.sll_pkttype == PACKET_OUTGOING)
 			w->tx_counter++;
 		else
 			w->rx_counter++;
@@ -94,14 +98,14 @@ static int worker_init(struct ncm_monitor_worker *w, int cpu)
 		return ret;
 
 	CPU_ZERO(&cpu_set);
-	CPU_SET(i, &cpu_set);
+	CPU_SET(cpu, &cpu_set);
 
 	/* Attach the thread to the given core */
 	ret = pthread_attr_setaffinity_np(&thread_attr, sizeof(cpu_set), &cpu_set);
 	if (ret)
 		return ret;
 
-	ret = pthread_create(&w->thread, &thread_attr, worker_main_loop, w);
+	ret = pthread_create(&w->thread_id, &thread_attr, worker_main_loop, w);
 
 	return ret;
 }
@@ -121,8 +125,8 @@ static int worker_setup(struct ncm_monitor_worker *w, unsigned int if_id,
 		return w->fd;
 
 	memset(&req, 0, sizeof(req));
-	setsockopt(p->fd, SOL_PACKET, PACKET_RX_RING, (void *)&req, sizeof(req));
-	setsockopt(p->fd, SOL_PACKET, PACKET_TX_RING, (void *)&req, sizeof(req));
+	setsockopt(w->fd, SOL_PACKET, PACKET_RX_RING, (void *)&req, sizeof(req));
+	setsockopt(w->fd, SOL_PACKET, PACKET_TX_RING, (void *)&req, sizeof(req));
 
 	/* Setup a timer for the worker's main loop */
 	receive_timeout.tv_sec = 0;
@@ -155,7 +159,7 @@ static void worker_cleanup(struct ncm_monitor_worker *w)
 	w->run = false;
 	sem_post(&w->thread_sem);
 
-	pthread_join(w->thread, NULL);
+	pthread_join(w->thread_id, NULL);
 
 	close(w->fd);
 
@@ -177,7 +181,7 @@ static int worker_stop(struct ncm_monitor_worker *w)
 	sem_wait(&w->thread_sem);
 }
 
-static void worker_snap_and_reset(struct ncm_monitor_worket *w,
+static void worker_snap_and_reset(struct ncm_monitor_worker *w,
 				  uint32_t *rx, uint32_t *tx)
 {
 	pthread_mutex_lock(&w->thread_mutex);
@@ -199,8 +203,8 @@ struct ncm_monitor *monitor_create(int n_cpus)
 		return NULL;
 
 	mon->n_workers = n_cpus;
-	mon>-workers = malloc(n_cpus * sizeof(struct ncm_monitor_worker));
-	if (!mon->rx_workers)
+	mon->workers = malloc(n_cpus * sizeof(struct ncm_monitor_worker));
+	if (!mon->workers)
 		goto free_mon;
 
 	for (i = 0; i < mon->n_workers; i++) {
@@ -231,7 +235,7 @@ int ncm_monitor_set_promisc(struct ncm_monitor *mon, unsigned int if_id)
 
 	memset(&mr, 0, sizeof(mr));
 	mr.mr_type = PACKET_MR_PROMISC;
-	mr.mr_ifindex = ifindex;
+	mr.mr_ifindex = if_id;
 
 	/* Keep this socket open while we capture to stay in promiscuous mode */
 	mon->promisc_fd = socket(AF_PACKET, SOCK_DGRAM, 0);
@@ -242,10 +246,10 @@ int ncm_monitor_set_promisc(struct ncm_monitor *mon, unsigned int if_id)
 			 (void *)&mr, sizeof(mr));
 }
 
-int ncm_monitor_start_cap(struct ncm_monitor *mon, struct ncm_params *params)
+int ncm_monitor_start_cap(struct ncm_monitor *mon, struct ncm_parameters *params)
 {
 	unsigned int if_id;
-	int i;
+	int i, ret;
 
 	if_id = if_nametoindex(params->iface);
 	if (!if_id)
