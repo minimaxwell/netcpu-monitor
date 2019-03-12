@@ -1,4 +1,5 @@
 #include<stdint.h>
+#include<time.h>
 
 #include "netcpu-monitor.h"
 #include "connector.h"
@@ -27,6 +28,7 @@ int client_stop_srv_cap(struct ncm_client *c);
 bool client_is_connected(struct ncm_client *c);
 
 /* Stats accessors */
-struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c);
+struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c,
+						struct timespec *ts);
 
 #endif

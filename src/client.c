@@ -3,6 +3,7 @@
 #include<stdio.h>
 #include<stdint.h>
 #include<unistd.h>
+#include<time.h>
 
 #include "ui.h"
 #include "client.h"
@@ -183,7 +184,8 @@ err_req:
 	return stat;
 }
 
-struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c)
+struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c,
+						struct timespec *ts)
 {
 	struct ncm_stat_pcpu_rxtx *rxtx_stat = NULL;
 	struct ncm_stat *stat = NULL;
@@ -203,6 +205,9 @@ struct ncm_stat_pcpu_rxtx *client_get_pcpu_stat(struct ncm_client *c)
 		goto err;
 
 	memcpy(rxtx_stat, stat->buf, sizeof(*rxtx_stat) + stat->size);
+
+	if (ts)
+		*ts = stat->ts;
 
 err:
 	free(stat);

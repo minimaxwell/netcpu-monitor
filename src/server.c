@@ -6,6 +6,7 @@
 #include<string.h>
 #include<sched.h>
 #include<signal.h>
+#include<time.h>
 
 #include "stat.h"
 #include "server.h"
@@ -62,19 +63,23 @@ static struct ncm_stat *server_get_stat_pcpu_rxtx(struct ncm_server *s)
 {
 	struct ncm_stat_pcpu_rxtx *rxtx;
 	struct ncm_stat *stat;
+	struct timespec ts;
 
-	rxtx = ncm_monitor_snapshot(s->mon);
+	rxtx = ncm_monitor_snapshot(s->mon, &ts);
 	if (!rxtx) {
 		fprintf(stderr, "Error taking stats snapshot\n");
 		return NULL;
 	}
 
-	stat = malloc(sizeof(*stat) + sizeof(*rxtx) + rxtx->size * sizeof(struct ncm_stats_pcpu_rxtx_entry));
+	stat = malloc(sizeof(*stat) + sizeof(*rxtx) +
+		      rxtx->size * sizeof(struct ncm_stats_pcpu_rxtx_entry));
 	if (!stat)
 		goto clean_stat;
 
 	stat->type = NCM_STAT_PCPU_RXTX;
-	stat->size = sizeof(*rxtx) + rxtx->size * sizeof(struct ncm_stats_pcpu_rxtx_entry);
+	stat->size = sizeof(*rxtx) + rxtx->size *
+		     sizeof(struct ncm_stats_pcpu_rxtx_entry);
+	stat->ts = ts;
 	memcpy(stat->buf, rxtx, stat->size);
 
 clean_stat:

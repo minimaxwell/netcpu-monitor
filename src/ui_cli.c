@@ -66,7 +66,8 @@ int ui_cli_main(struct ncm_ui *ui)
 
 	while (client_is_connected(ui->client) && !ui_cli_stop) {
 
-		rxtx = client_get_pcpu_stat(ui->client);
+		/* We're not interested in the timestamp */
+		rxtx = client_get_pcpu_stat(ui->client, NULL);
 		if (!rxtx)
 			continue;
 

@@ -13,6 +13,7 @@
 #include<net/ethernet.h>
 #include<arpa/inet.h>
 #include<string.h>
+#include<time.h>
 
 #include "monitor.h"
 #include "stat.h"
@@ -38,8 +39,10 @@ struct ncm_monitor {
 	char iface[16];
 	int promisc_fd;
 	int fanout_group;
+	struct timespec ts_last_acq;
 	int n_workers;
 	struct ncm_monitor_worker *workers;
+	bool capturing;
 };
 
 void *worker_main_loop(void *priv)
@@ -213,6 +216,7 @@ struct ncm_monitor *monitor_create(int n_cpus)
 	if (!mon)
 		return NULL;
 
+	mon->capturing = false;
 	mon->n_workers = n_cpus;
 	mon->workers = malloc(n_cpus * sizeof(struct ncm_monitor_worker));
 	if (!mon->workers)
@@ -267,7 +271,8 @@ int ncm_monitor_start_cap(struct ncm_monitor *mon, struct ncm_parameters *params
 	unsigned int if_id;
 	int i, ret;
 
-	fprintf(stdout, "Asked capture on %s\n", params->iface);
+	if (mon->capturing)
+		return 0;
 
 	strncpy(mon->iface, params->iface, 16);
 
@@ -299,15 +304,20 @@ int ncm_monitor_start_cap(struct ncm_monitor *mon, struct ncm_parameters *params
 		}
 	}
 
-	return 0;
+	mon->capturing = true;
+
+	return clock_gettime(CLOCK_MONOTONIC_RAW, &mon->ts_last_acq);
 }
 
-struct ncm_stat_pcpu_rxtx *ncm_monitor_snapshot(struct ncm_monitor *mon)
+struct ncm_stat_pcpu_rxtx *ncm_monitor_snapshot(struct ncm_monitor *mon,
+						struct timespec *ts)
 {
 	struct ncm_stat_pcpu_rxtx *rxtx = NULL;
+	struct timespec ts_now;
 	int i;
 
-	rxtx = malloc(sizeof(*rxtx) + mon->n_workers * sizeof(struct ncm_stats_pcpu_rxtx_entry));
+	rxtx = malloc(sizeof(*rxtx) + mon->n_workers *
+		      sizeof(struct ncm_stats_pcpu_rxtx_entry));
 	if (!rxtx)
 		return NULL;
 
@@ -317,6 +327,12 @@ struct ncm_stat_pcpu_rxtx *ncm_monitor_snapshot(struct ncm_monitor *mon)
 		worker_snap_and_reset(&mon->workers[i], &rxtx->pcpu_pkts[i]);
 	}
 
+	clock_gettime(CLOCK_MONOTONIC_RAW, &ts_now);
+	ts->tv_sec = ts_now.tv_sec - mon->ts_last_acq.tv_sec;
+	ts->tv_nsec = ts_now.tv_nsec - mon->ts_last_acq.tv_nsec;
+
+	mon->ts_last_acq = ts_now;
+
 	return rxtx;
 }
 
@@ -324,6 +340,9 @@ int ncm_monitor_stop_cap(struct ncm_monitor *mon)
 {
 	struct ncm_monitor_worker *w = NULL;
 	int i;
+
+	if(!mon->capturing)
+		return 0;
 
 	for (i = 0; i < mon->n_workers; i++) {
 		w = &mon->workers[i];
@@ -337,6 +356,8 @@ int ncm_monitor_stop_cap(struct ncm_monitor *mon)
 	}
 
 	close(mon->promisc_fd);
+
+	mon->capturing = false;
 
 	return 0;
 }

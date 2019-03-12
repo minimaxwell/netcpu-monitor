@@ -2,6 +2,7 @@
 #define __STAT__
 
 #include<stdint.h>
+#include<time.h>
 #include "netcpu-monitor.h"
 
 enum stat_type {
@@ -24,6 +25,7 @@ struct ncm_stat_pcpu_rxtx {
 
 struct ncm_stat {
 	enum stat_type type;
+	struct timespec ts;
 	int size;
 	uint8_t buf[0];
 };
