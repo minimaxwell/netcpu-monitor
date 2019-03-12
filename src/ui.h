@@ -11,17 +11,23 @@
 enum ui_type {
 	NCM_UI_CLI,
 	NCM_UI_NCURSES,
-	NCM_UI_ONESHOT_START,
-	NCM_UI_ONESHOT_STOP,
+	NCM_UI_ONESHOT,
 
 	/* Last entry */
 	NCM_N_UIS,
+};
+
+struct ui_ops {
+	int (*init)(struct ncm_ui *ui);
+	void (*destroy)(struct ncm_ui *ui);
+	int (*main)(struct ncm_ui *ui);
 };
 
 struct ncm_ui {
 	void *priv;
 	enum ui_type type;
 	struct ncm_client *client;
+	struct ui_ops *ops;
 };
 
 struct ncm_ui *ui_create(enum ui_type);
