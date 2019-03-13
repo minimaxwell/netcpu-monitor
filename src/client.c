@@ -27,7 +27,7 @@ struct ncm_client *client_create(char *server_addr, uint64_t cpumap,
 		con = connector_create(NCM_NETWORK_CLIENT, server_addr,
 				       NCM_DEFAULT_PORT);
 	else
-		con = connector_create(NCM_LOCAL, NULL, 0);
+		con = connector_create(NCM_LOCAL_CLIENT, NULL, 0);
 
 	if (!con) {
 		free(c);

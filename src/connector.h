@@ -7,7 +7,8 @@
 #define __CONNECTOR__
 
 enum ncm_connector_type {
-	NCM_LOCAL,
+	NCM_LOCAL_SERVER,
+	NCM_LOCAL_CLIENT,
 	NCM_NETWORK_SERVER,
 	NCM_NETWORK_CLIENT,
 };

@@ -3,12 +3,15 @@
 #include<unistd.h>
 #include<sys/types.h>
 #include<sys/socket.h>
+#include<sys/un.h>
 #include<netinet/in.h>
 #include<arpa/inet.h>
 #include<errno.h>
 #include<string.h>
 
 #include "connector.h"
+
+#define LOCAL_SOCK_PATH "/tmp/netcpu.default"
 
 static int connector_create_network_server(struct ncm_connector *con)
 {
@@ -28,6 +31,7 @@ static int connector_create_network_server(struct ncm_connector *con)
 	serv_addr.sin_port = htons(con->port);
 
 	if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+		close(sockfd);
 		return -1;
 	}
 
@@ -48,9 +52,45 @@ static int connector_create_network_client(struct ncm_connector *con)
 	return sockfd;
 }
 
-static int connector_create_local(struct ncm_connector *con)
+static int connector_create_local_server(struct ncm_connector *con)
 {
-	return -1;
+	struct sockaddr_un serv_addr;
+	int sockfd = 0;
+
+	memset(&serv_addr, 0, sizeof(serv_addr));
+
+	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (sockfd < 0) {
+		fprintf(stderr, "Can't open socket\n");
+		return sockfd;
+	}
+
+	serv_addr.sun_family = AF_UNIX;
+	strncpy(serv_addr.sun_path, LOCAL_SOCK_PATH,
+		sizeof(serv_addr.sun_path) - 1);
+
+	/* Just in case */
+	unlink(LOCAL_SOCK_PATH);
+
+	if (bind(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) < 0) {
+		close(sockfd);
+		return -1;
+	}
+
+	listen(sockfd, 1);
+
+	return sockfd;
+}
+
+static int connector_create_local_client(struct ncm_connector *con)
+{
+	int sockfd = 0;
+
+	sockfd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (sockfd < 0)
+		fprintf(stderr, "Can't open socket\n");
+
+	return sockfd;
 }
 
 struct ncm_connector *connector_create(enum ncm_connector_type type, char *addr,
@@ -68,12 +108,19 @@ struct ncm_connector *connector_create(enum ncm_connector_type type, char *addr,
 	con->confd = -1;
 	con->status = false;
 
-	if (type == NCM_LOCAL) {
-		con->sockfd = connector_create_local(con);
-	} else if (type == NCM_NETWORK_SERVER) {
+	switch (type) {
+	case NCM_LOCAL_SERVER:
+		con->sockfd = connector_create_local_server(con);
+		break;
+	case NCM_LOCAL_CLIENT:
+		con->sockfd = connector_create_local_client(con);
+		break;
+	case NCM_NETWORK_SERVER:
 		con->sockfd = connector_create_network_server(con);
-	} else {
+		break;
+	case NCM_NETWORK_CLIENT:
 		con->sockfd = connector_create_network_client(con);
+		break;
 	}
 
 	if (con->sockfd < 0) {
@@ -90,6 +137,9 @@ con_err:
 
 void connector_destroy(struct ncm_connector *con)
 {
+	if (con->type == NCM_NETWORK_SERVER)
+		unlink(LOCAL_SOCK_PATH);
+
 	if (con->confd >= 0)
 		close(con->confd);
 
@@ -102,20 +152,33 @@ void connector_destroy(struct ncm_connector *con)
 /* Blocking until connection is established */
 int connector_connect(struct ncm_connector *con)
 {
-	if (con->type == NCM_NETWORK_SERVER) {
-		struct sockaddr_in cli_addr;
-		socklen_t cli_len = sizeof(cli_addr);
+	int ret;
 
-		con->confd = accept(con->sockfd, (struct sockaddr *)&cli_addr,
-				    &cli_len);
+	if (con->type == NCM_NETWORK_SERVER || con->type == NCM_LOCAL_SERVER) {
+
+		con->confd = accept(con->sockfd, NULL, NULL);
 
 	} else if (con->type == NCM_NETWORK_CLIENT) {
 		struct sockaddr_in serv_addr;
-		int ret;
 
 		serv_addr.sin_family = AF_INET;
 		serv_addr.sin_addr.s_addr = inet_addr(con->addr);
 		serv_addr.sin_port = htons(con->port);
+
+		ret = connect(con->sockfd, (struct sockaddr *)&serv_addr,
+				     sizeof(serv_addr));
+		if (ret)
+			con->confd = ret;
+		else
+			con->confd = con->sockfd;
+	} else if (con->type == NCM_LOCAL_CLIENT) {
+		struct sockaddr_un serv_addr;
+
+		memset(&serv_addr, 0, sizeof(serv_addr));
+
+		serv_addr.sun_family = AF_UNIX;
+		strncpy(serv_addr.sun_path, LOCAL_SOCK_PATH,
+			sizeof(serv_addr.sun_path) - 1);
 
 		ret = connect(con->sockfd, (struct sockaddr *)&serv_addr,
 				     sizeof(serv_addr));
@@ -210,7 +273,7 @@ disconnect:
 
 	con->status = false;
 
-	if (con->type == NCM_NETWORK_SERVER)
+	if (con->type == NCM_NETWORK_SERVER || con->type == NCM_LOCAL_SERVER)
 		close(con->confd);
 
 err:

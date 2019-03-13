@@ -8,6 +8,8 @@
 #include<errno.h>
 #include<getopt.h>
 #include<string.h>
+#include<signal.h>
+#include<sys/types.h>
 
 #include "netcpu-monitor.h"
 #include "client.h"
@@ -53,7 +55,7 @@ int main(int argc, char **argv)
 	struct ncm_ui *ui = NULL;
 	bool local = false;
 
-	int opt = 0;
+	int opt = 0, ret = 1;
 	int longopt_index = 0;
 
 	while(1) {
@@ -121,9 +123,32 @@ int main(int argc, char **argv)
 	if (!opt_server && !opt_client_serveraddr)
 		local = true;
 
-	if (opt_server || local)
-		return run_server(local, opt_background);
+	if (local && opt_oneshot)
+		goto print_help_and_quit;
 
+	if (opt_server)
+		return run_server(false, opt_background);
+
+	/* In local mode, we let the server fork to background, then launch the
+	 * client in the parent
+	 */
+	if (local) {
+		ret = run_server(true, true);
+		if (ret < 0) {
+			fprintf(stderr, "Couldn't launch server subprocess\n");
+			return 1;
+		}
+
+		/* In local mode, run_server will return 1 after forking to
+		 * background, we then launch the client in the parent.
+		 *
+		 * When the child process running the server terminates normaly,
+		 * we don't want to re-launch another client.*/
+		if (!ret)
+			return 0;
+	}
+
+	/* Client is in local mode if the supplied server address is null */
 	client = client_create(opt_client_serveraddr, opt_cpumap, opt_dir,
 			       opt_interface);
 	if (!client)

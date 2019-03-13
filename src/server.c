@@ -14,6 +14,7 @@
 #include "connector.h"
 
 struct ncm_server {
+	bool local;
 	struct ncm_connector *con;
 	struct ncm_parameters params;
 	struct ncm_monitor *mon;
@@ -155,12 +156,17 @@ static int server_main_loop(struct ncm_server *s)
 				server_get_stat(s, (struct ncm_stat_req *) msg->buf);
 				break;
 			case NCM_MSG_QUIT :
+				server_stop = true;
 			default:
 				fprintf(stderr, "Unsupported message type %d\n", msg->type);
 			}
 
 			free(msg);
 		}
+
+		/* If we got disconnected in local mode, quit */
+		if (s->local)
+			break;
 
 	}
 
@@ -211,9 +217,11 @@ int run_server(bool local, bool fork_to_background)
 	if (!s)
 		return 0;
 
+	s->local = local;
+
 	/* Create connector */
 	if (local)
-		con = connector_create(NCM_LOCAL, NULL, 0);
+		con = connector_create(NCM_LOCAL_SERVER, NULL, 0);
 	else
 		con = connector_create(NCM_NETWORK_SERVER, "0.0.0.0",
 				       NCM_DEFAULT_PORT);
@@ -233,7 +241,7 @@ int run_server(bool local, bool fork_to_background)
 		}
 
 		if (pid > 0) {
-			return 0;
+			return 1;
 		}
 
 		/* Detach from controlling tty */
@@ -245,6 +253,9 @@ int run_server(bool local, bool fork_to_background)
 	sigfillset(&sa.sa_mask);
 
 	if (sigaction(SIGINT, &sa, NULL))
+		goto server_free;
+
+	if (sigaction(SIGTERM, &sa, NULL))
 		goto server_free;
 
 	if (server_get_cpu_params(s))

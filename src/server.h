@@ -1,4 +1,6 @@
 #include<stdbool.h>
+#include<unistd.h>
+#include<sys/types.h>
 
 #include "netcpu-monitor.h"
 
