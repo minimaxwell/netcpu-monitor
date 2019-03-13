@@ -66,6 +66,7 @@ struct ncm_connector *connector_create(enum ncm_connector_type type, char *addr,
 	con->addr = addr;
 	con->port = port;
 	con->confd = -1;
+	con->status = false;
 
 	if (type == NCM_LOCAL) {
 		con->sockfd = connector_create_local(con);
@@ -144,6 +145,9 @@ int connector_send(struct ncm_connector *con, struct ncm_message *msg)
 {
 	int n;
 
+	if (!con->status)
+		return -1;
+
 	if (con->confd < 0)
 		return -1;
 
@@ -165,6 +169,9 @@ struct ncm_message *connector_receive(struct ncm_connector *con)
 {
 	struct ncm_message *msg_head = NULL, *msg = NULL;
 	int n;
+
+	if (!con->status)
+		return NULL;
 
 	/* Allocate only the header */
 	msg_head = malloc(sizeof(*msg_head));

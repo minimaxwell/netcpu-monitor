@@ -57,6 +57,11 @@ int ui_oneshot_main(struct ncm_ui *ui)
 	struct ncm_stat_pcpu_rxtx *rxtx = NULL;
 	struct timespec ts;
 
+	if (!client_is_connected(ui->client)) {
+		fprintf(stderr, "Error connecting to server\n");
+		return -1;
+	}
+
 	switch (ui_os->cmd) {
 	case NCM_UI_ONESHOT_START:
 		return client_start_srv_cap(ui->client);
