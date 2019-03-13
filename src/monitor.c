@@ -47,7 +47,6 @@ struct ncm_monitor {
 
 void *worker_main_loop(void *priv)
 {
-	unsigned char packet_buffer[65535];
 	struct ncm_monitor_worker *w = priv;
 	struct sockaddr_ll sll;
 	unsigned int sll_length = sizeof(sll);
@@ -64,8 +63,7 @@ void *worker_main_loop(void *priv)
 		if (!w->run)
 			continue;
 
-
-		len = recvfrom(w->fd, packet_buffer, sizeof(packet_buffer), 0,
+		len = recvfrom(w->fd, NULL, 0, MSG_TRUNC,
 			       (struct sockaddr *)&sll, &sll_length);
 		if (len < 0)
 			goto done;
@@ -140,7 +138,6 @@ static int worker_setup(struct ncm_monitor_worker *w, unsigned int if_id,
 
 	memset(&req, 0, sizeof(req));
 	setsockopt(w->fd, SOL_PACKET, PACKET_RX_RING, (void *)&req, sizeof(req));
-	setsockopt(w->fd, SOL_PACKET, PACKET_TX_RING, (void *)&req, sizeof(req));
 
 	/* Setup a timer for the worker's main loop */
 	receive_timeout.tv_sec = 0;

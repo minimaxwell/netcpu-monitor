@@ -41,7 +41,7 @@ struct ui_rxtx_window {
 	/* a rxtx window has one graph per cpu */
 	int n_cpus;
 	struct ui_bargraph *graphs;
-	uint32_t *pcpu_count;
+	uint64_t *pcpu_count;
 };
 
 struct ui_rxtx_graphs {
@@ -68,12 +68,16 @@ int ui_bargraph_draw(WINDOW *w, struct ui_bargraph *bg)
 
 	for (i = 0; i < barsize; i++)
 		if (i < n_bars)
-			mvwprintw(w, bg->coord.y, bg->coord.x + 11 + i, "|");
+			mvwprintw(w, bg->coord.y, bg->coord.x + 12 + i, "|");
+		else
+			mvwprintw(w, bg->coord.y, bg->coord.x + 12 + i, " ");
 
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 11, "]");
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 13, "%d %%", bg->percent);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 19, "%u", bg->value);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 29, "pkts/s");
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 13, "]");
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "     ");
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "%d %%", bg->percent);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 21, "       ", bg->value);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 21, "%u", bg->value);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 31, "pkts/s");
 
 	return 0;
 }
@@ -133,7 +137,7 @@ int ui_graphs_alloc(struct ncm_ui *ui)
 	struct ui_ncurses *unc = (struct ui_ncurses *) ui->priv;
 	struct ui_rxtx_window *rtw;
 	struct ui_bargraph *graphs;
-	uint32_t *pcpu_counters;
+	uint64_t *pcpu_counters;
 	int i, j;
 
 	for (i = 0; i < UI_N_RXTX; i++) {
@@ -144,7 +148,7 @@ int ui_graphs_alloc(struct ncm_ui *ui)
 		if (!graphs)
 			return -1;
 
-		pcpu_counters = malloc(rtw->n_cpus * sizeof(uint32_t));
+		pcpu_counters = malloc(rtw->n_cpus * sizeof(uint64_t));
 		if (!pcpu_counters)
 			return -1;
 
@@ -202,10 +206,33 @@ void ui_ncurses_destroy(struct ncm_ui *ui)
 	free(unc);
 }
 
-int ui_ncurses_update_graphs(struct ncm_ui *ui, struct ncm_stat_pcpu_rxtx *rxtx)
+static int ui_ncurses_update_graph(struct ui_rxtx_window * rtw)
+{
+	struct ui_bargraph *bg;
+	int j;
+
+	for (j = 0; j < rtw->n_cpus; j++) {
+		bg = &rtw->graphs[j];
+		if (rtw->n_per_sec)
+			bg->percent = ( rtw->pcpu_count[j] * 100 ) / rtw->n_per_sec;
+		else
+			bg->percent = 0;
+		bg->value = rtw->pcpu_count[j];
+		ui_bargraph_draw(rtw->win, bg);
+	}
+
+	wrefresh(rtw->win);
+
+	return 0;
+}
+
+static int ui_ncurses_update_graphs(struct ncm_ui *ui,
+				    struct ncm_stat_pcpu_rxtx *rxtx,
+				    struct timespec *ts)
 {
 	struct ui_ncurses *unc = (struct ui_ncurses *) ui->priv;
 	struct ui_rxtx_window *rtw_rx, *rtw_tx, *rtw_rxtx;
+	uint64_t us = ( ts->tv_sec * 1000000 ) + ( ts->tv_nsec / 1000 );
 	int j;
 
 	uint64_t total_rx = 0, total_tx = 0;
@@ -214,19 +241,23 @@ int ui_ncurses_update_graphs(struct ncm_ui *ui, struct ncm_stat_pcpu_rxtx *rxtx)
 	rtw_tx = &unc->graphs.ui_rxtx_graphs[UI_TX];
 	rtw_rxtx = &unc->graphs.ui_rxtx_graphs[UI_RXTX];
 
-	rtw_rx->n_per_sec = 0;
-	rtw_tx->n_per_sec = 0;
-	rtw_rxtx->n_per_sec = 0;
-
 	/* Accumulate everything */
 	for (j = 0; j < rtw_rx->n_cpus; j++) {
 		total_rx += rxtx->pcpu_pkts[j].rx;
-		total_tx += rxtx->pcpu_pkts[j].rx;
+		total_tx += rxtx->pcpu_pkts[j].tx;
 
+		rtw_rx->pcpu_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].rx * 1000000 ) / us;
+		rtw_tx->pcpu_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].tx * 1000000 ) / us;
+		rtw_rxtx->pcpu_count[j] = rtw_rx->pcpu_count[j] + rtw_tx->pcpu_count[j];
 	}
 
-	for (j = 0; j < rtw_rx->n_cpus; j++) {
-	}
+	rtw_rx->n_per_sec = ( total_rx * 1000000 ) / us;
+	rtw_tx->n_per_sec = ( total_tx * 1000000 ) / us;
+	rtw_rxtx->n_per_sec = rtw_rx->n_per_sec + rtw_tx->n_per_sec;
+
+	ui_ncurses_update_graph(rtw_rx);
+	ui_ncurses_update_graph(rtw_tx);
+	ui_ncurses_update_graph(rtw_rxtx);
 
 	return 0;
 }
@@ -237,6 +268,7 @@ static void * ui_ncurses_main_loop(void *priv)
 {
 	struct ncm_ui *ui = (struct ncm_ui *)priv;
 	struct ncm_stat_pcpu_rxtx *rxtx = NULL;
+	struct timespec ts;
 	int ret = 0;
 
 	ret = client_start_srv_cap(ui->client);
@@ -248,7 +280,7 @@ static void * ui_ncurses_main_loop(void *priv)
 	while (client_is_connected(ui->client) && !ui_ncurses_stop) {
 
 		/* We're not interested in the timestamp */
-		rxtx = client_get_pcpu_stat(ui->client, NULL);
+		rxtx = client_get_pcpu_stat(ui->client, &ts);
 		if (!rxtx)
 			continue;
 
@@ -256,6 +288,7 @@ static void * ui_ncurses_main_loop(void *priv)
 			goto clean;
 
 		/* do the thing */
+		ui_ncurses_update_graphs(ui, rxtx, &ts);
 
 		usleep(100000);
 clean:
@@ -313,9 +346,9 @@ int ui_ncurses_main(struct ncm_ui *ui)
 	pthread_join(t, NULL);
 
 cleanup:
-
 	ui_windows_cleanup(ui);
 
+	curs_set(1);
 	endwin();
 	return 0;
 }
