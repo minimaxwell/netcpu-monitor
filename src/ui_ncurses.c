@@ -75,7 +75,7 @@ int ui_bargraph_draw(WINDOW *w, struct ui_bargraph *bg)
 	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 13, "]");
 	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "     ");
 	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "%d %%", bg->percent);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 21, "       ", bg->value);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 21, "          ", bg->value);
 	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 21, "%u", bg->value);
 	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 31, "pkts/s");
 
@@ -297,9 +297,11 @@ clean:
 
 	}
 
-	ret = client_stop_srv_cap(ui->client);
-	if (ret)
-		fprintf(stderr, "Can't stop acquisition\n");
+	if (client_is_connected(ui->client)) {
+		ret = client_stop_srv_cap(ui->client);
+		if (ret)
+			fprintf(stderr, "Can't stop acquisition\n");
+	}
 
 	return NULL;
 }
