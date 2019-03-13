@@ -195,13 +195,21 @@ static int worker_stop(struct ncm_monitor_worker *w)
 static void worker_snap_and_reset(struct ncm_monitor_worker *w,
 				  struct ncm_stats_pcpu_rxtx_entry *entry)
 {
+	struct tpacket_stats stats;
+	socklen_t len = sizeof(stats);
+
 	pthread_mutex_lock(&w->thread_mutex);
 	entry->rx = w->rx_counter;
 	entry->tx = w->tx_counter;
 
 	w->rx_counter = 0;
 	w->tx_counter = 0;
+
 	pthread_mutex_unlock(&w->thread_mutex);
+	getsockopt(w->fd, SOL_PACKET, PACKET_STATISTICS, &stats, &len);
+
+	entry->drops = stats.tp_drops;
+	entry->total = stats.tp_packets;
 }
 
 struct ncm_monitor *monitor_create(int n_cpus)

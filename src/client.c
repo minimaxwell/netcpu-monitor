@@ -35,6 +35,7 @@ struct ncm_client *client_create(char *server_addr, uint64_t cpumap,
 	}
 
 	c->con = con;
+	c->server_addr = server_addr;
 
 	/* We don't know yet how many CPUs there are on the server side */
 	c->params.n_cpus = -1;

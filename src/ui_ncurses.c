@@ -10,6 +10,16 @@
 #include "ui_ncurses.h"
 #include "client.h"
 
+#define C_BG COLOR_BLACK
+
+#define C_RED 1
+#define C_GREEN 2
+#define C_YELLOW 3
+#define C_BLUE 4
+#define C_MAGENTA 5
+#define C_CYAN 6
+#define C_WHITE 7
+
 enum ui_rxtx_window_type {
 	UI_RX,
 	UI_TX,
@@ -27,7 +37,10 @@ struct ui_coord {
 struct ui_bargraph {
 	struct ui_coord coord;
 	int percent;
+	int true_percent;
 	uint32_t value;
+	uint32_t drops;
+	uint32_t true_value;
 	char label[9];
 };
 
@@ -37,11 +50,15 @@ struct ui_rxtx_window {
 	struct ui_coord coord;
 	char label[8]; /* "ingress", "egress", "total" */
 	uint64_t n_per_sec;
+	uint64_t drop_per_sec;
+	uint64_t total_per_sec;
 
 	/* a rxtx window has one graph per cpu */
 	int n_cpus;
 	struct ui_bargraph *graphs;
 	uint64_t *pcpu_count;
+	uint64_t *true_count;
+	uint64_t *drop_count;
 };
 
 struct ui_rxtx_graphs {
@@ -54,59 +71,133 @@ struct ui_ncurses {
 	struct ui_coord coord;
 };
 
+static void ui_init_colors(void) {
+	init_pair(C_RED, COLOR_RED, C_BG);
+	init_pair(C_GREEN, COLOR_GREEN, C_BG);
+	init_pair(C_YELLOW, COLOR_YELLOW, C_BG);
+	init_pair(C_BLUE, COLOR_BLUE, C_BG);
+	init_pair(C_MAGENTA, COLOR_MAGENTA, C_BG);
+	init_pair(C_CYAN, COLOR_CYAN, C_BG);
+	init_pair(C_WHITE, COLOR_WHITE, C_BG);
+}
+
+static int ui_barsize_get(int window_width)
+{
+	int barsize = window_width - 32;
+
+	if (barsize > 20)
+		barsize = 20;
+
+	return barsize;
+}
+
 int ui_bargraph_draw(WINDOW *w, struct ui_bargraph *bg)
 {
-	int n_bars, i;
-	int barsize = bg->coord.w - 35;
-	if (barsize > 50)
-		barsize = 50;
+	int n_bars, n_red_bars, i;
+	int barsize = ui_barsize_get(bg->coord.w);
 
 	n_bars = (bg->percent * barsize) / 100;
+	n_red_bars = (bg->true_percent * barsize) / 100;
 
-	mvwprintw(w, bg->coord.y, bg->coord.x, " %s ", bg->label);
-	mvwprintw(w, bg->coord.y, bg->coord.x + 10, "[");
+	wattron(w, COLOR_PAIR(C_CYAN));
+	mvwprintw(w, bg->coord.y, bg->coord.x, " %s", bg->label);
+	wattroff(w, COLOR_PAIR(C_CYAN));
+
+	if (bg->drops)
+		wattron(w, COLOR_PAIR(C_YELLOW));
+
+	mvwaddch(w, bg->coord.y, bg->coord.x + 4, '[' | A_BOLD);
 
 	for (i = 0; i < barsize; i++)
-		if (i < n_bars)
-			mvwprintw(w, bg->coord.y, bg->coord.x + 12 + i, "|");
-		else
-			mvwprintw(w, bg->coord.y, bg->coord.x + 12 + i, " ");
+		if (i < n_bars) {
+			mvwprintw(w, bg->coord.y, bg->coord.x + 6 + i, "|");
+		} else if (i < n_red_bars) {
+			wattron(w, COLOR_PAIR(C_RED));
+			mvwprintw(w, bg->coord.y, bg->coord.x + 6 + i, "|");
+			wattroff(w, COLOR_PAIR(C_RED));
+		} else {
+			mvwprintw(w, bg->coord.y, bg->coord.x + 6 + i, " ");
+		}
 
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 13, "]");
+	mvwaddch(w, bg->coord.y, bg->coord.x + barsize + 13, ']' | A_BOLD);
 	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "     ");
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "%d %%", bg->percent);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 21, "          ", bg->value);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 21, "%u", bg->value);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 31, "pkts/s");
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "%d", bg->percent);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 19, "        ", bg->value);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 19, "%u", bg->value);
+
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 28, "    ");
+
+	if (bg->drops)
+		wattron(w, COLOR_PAIR(C_YELLOW));
 
 	return 0;
 }
 
-int ui_windows_init(struct ncm_ui *ui)
+static void ui_display_header(struct ncm_ui *ui)
+{
+	struct ncm_client *c = ui->client;
+
+	wmove(stdscr, 1, 1);
+	wprintw(stdscr, "Monitoring ");
+
+	wattron(stdscr, COLOR_PAIR(C_YELLOW));
+	wprintw(stdscr, "%s", c->params.iface);
+	wattroff(stdscr, COLOR_PAIR(C_YELLOW));
+
+	wprintw(stdscr, " on ");
+	wattron(stdscr, COLOR_PAIR(C_GREEN));
+	wprintw(stdscr, "%s", c->server_addr ? c->server_addr : "localhost");
+	wattroff(stdscr, COLOR_PAIR(C_GREEN));
+}
+
+static int ui_windows_init(struct ncm_ui *ui)
 {
 	struct ui_ncurses *unc = (struct ui_ncurses *) ui->priv;
 	struct ui_rxtx_window *rtw;
 	struct ui_bargraph *bg;
-	int i, j;
+	int i, j, barsize;
+	int n_cols = 1;
+	int header_height = 3;
+
+	int width = unc->coord.w;
+	if (width > 53)
+		width = 53;
+
+	if (unc->coord.w >= width * 2)
+		n_cols = 2;
+
+	ui_display_header(ui);
 
 	for (i = 0; i < UI_N_RXTX; i++) {
 		rtw = &unc->graphs.ui_rxtx_graphs[i];
 
-		rtw->coord.w = unc->coord.w;
-		rtw->coord.h = rtw->n_cpus + 4;
-		rtw->coord.x = 0;
-		rtw->coord.y = rtw->coord.h * i;
+		rtw->coord.w = width;
+		rtw->coord.h = rtw->n_cpus + 3;
+
+		/* Hack. I'm not good with responsive design */
+		rtw->coord.x = width * ( i % n_cols );
+		rtw->coord.y = rtw->coord.h * (i / n_cols) + header_height;
+
+		barsize = ui_barsize_get(rtw->coord.w - 2);
 
 		rtw->win = newwin(rtw->coord.h, rtw->coord.w,
 				  rtw->coord.y, rtw->coord.x);
 
 		box(rtw->win, 0, 0);
-		mvwprintw(rtw->win, 0, 2, "%s traffic", rtw->label);
+		mvwprintw(rtw->win, 0, 8, "%s traffic", rtw->label);
+
+		wattron(rtw->win, COLOR_PAIR(C_CYAN) | A_BOLD);
+
+		mvwprintw(rtw->win, 1, 1, "CPU");
+		mvwprintw(rtw->win, 1, barsize + 16, "%%");
+		mvwprintw(rtw->win, 1, barsize + 19, "pps");
+
+		wattroff(rtw->win, COLOR_PAIR(C_CYAN) | A_BOLD);
 
 		for (j = 0; j < rtw->n_cpus; j++) {
 			bg = &rtw->graphs[j];
 
-			bg->coord.w = rtw->coord.w - 30;
+			bg->coord.w = rtw->coord.w - 2;
 			bg->coord.h = 1;
 			bg->coord.x = 1;
 			bg->coord.y = j + 2;
@@ -138,6 +229,8 @@ int ui_graphs_alloc(struct ncm_ui *ui)
 	struct ui_rxtx_window *rtw;
 	struct ui_bargraph *graphs;
 	uint64_t *pcpu_counters;
+	uint64_t *true_counters;
+	uint64_t *drop_counters;
 	int i, j;
 
 	for (i = 0; i < UI_N_RXTX; i++) {
@@ -152,8 +245,18 @@ int ui_graphs_alloc(struct ncm_ui *ui)
 		if (!pcpu_counters)
 			return -1;
 
+		true_counters = malloc(rtw->n_cpus * sizeof(uint64_t));
+		if (!true_counters)
+			return -1;
+
+		drop_counters = malloc(rtw->n_cpus * sizeof(uint64_t));
+		if (!drop_counters)
+			return -1;
+
 		rtw->graphs = graphs;
 		rtw->pcpu_count = pcpu_counters;
+		rtw->true_count = true_counters;
+		rtw->drop_count = drop_counters;
 
 		switch(i) {
 		case 0:
@@ -171,7 +274,7 @@ int ui_graphs_alloc(struct ncm_ui *ui)
 		}
 
 		for (j = 0; j < rtw->n_cpus; j++)
-			sprintf(graphs[j].label, "CPU %d", j);
+			sprintf(graphs[j].label, "%d", j);
 
 	}
 
@@ -201,6 +304,8 @@ void ui_ncurses_destroy(struct ncm_ui *ui)
 	for (i = 0; i < UI_N_RXTX; i++) {
 		free(unc->graphs.ui_rxtx_graphs[i].graphs);
 		free(unc->graphs.ui_rxtx_graphs[i].pcpu_count);
+		free(unc->graphs.ui_rxtx_graphs[i].true_count);
+		free(unc->graphs.ui_rxtx_graphs[i].drop_count);
 	}
 
 	free(unc);
@@ -213,11 +318,33 @@ static int ui_ncurses_update_graph(struct ui_rxtx_window * rtw)
 
 	for (j = 0; j < rtw->n_cpus; j++) {
 		bg = &rtw->graphs[j];
-		if (rtw->n_per_sec)
+
+		bg->drops = 0;
+		bg->true_value = 0;
+		bg->true_percent = 0;
+
+		if (rtw->type == UI_RXTX && rtw->drop_count[j]) {
+
+			bg->percent = ( rtw->pcpu_count[j] * 100 ) / rtw->total_per_sec;
+			bg->true_percent = ( rtw->true_count[j] * 100 ) / rtw->total_per_sec;
+
+		} else if (rtw->n_per_sec) {
+
 			bg->percent = ( rtw->pcpu_count[j] * 100 ) / rtw->n_per_sec;
-		else
+
+		} else {
+
 			bg->percent = 0;
+
+		}
+
 		bg->value = rtw->pcpu_count[j];
+
+		bg->drops = rtw->drop_count[j];
+
+		if (rtw->type == UI_RXTX)
+			bg->true_value = rtw->true_count[j];
+
 		ui_bargraph_draw(rtw->win, bg);
 	}
 
@@ -236,6 +363,7 @@ static int ui_ncurses_update_graphs(struct ncm_ui *ui,
 	int j;
 
 	uint64_t total_rx = 0, total_tx = 0;
+	uint64_t total_drop = 0, total_total = 0;
 
 	rtw_rx = &unc->graphs.ui_rxtx_graphs[UI_RX];
 	rtw_tx = &unc->graphs.ui_rxtx_graphs[UI_TX];
@@ -245,15 +373,27 @@ static int ui_ncurses_update_graphs(struct ncm_ui *ui,
 	for (j = 0; j < rtw_rx->n_cpus; j++) {
 		total_rx += rxtx->pcpu_pkts[j].rx;
 		total_tx += rxtx->pcpu_pkts[j].tx;
+		total_drop += rxtx->pcpu_pkts[j].drops;
+		total_total += rxtx->pcpu_pkts[j].total;
 
 		rtw_rx->pcpu_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].rx * 1000000 ) / us;
 		rtw_tx->pcpu_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].tx * 1000000 ) / us;
 		rtw_rxtx->pcpu_count[j] = rtw_rx->pcpu_count[j] + rtw_tx->pcpu_count[j];
+		rtw_rxtx->true_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].total * 1000000 ) / us;
+
+		/* drop and total are only meaningful for rxtx, but we still need
+		 * to know if there's drop occuring on a socket*/
+		rtw_rx->drop_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].drops * 1000000 ) / us;
+		rtw_tx->drop_count[j] = rtw_rx->drop_count[j];
+		rtw_rxtx->drop_count[j] = rtw_rx->drop_count[j];
 	}
 
 	rtw_rx->n_per_sec = ( total_rx * 1000000 ) / us;
 	rtw_tx->n_per_sec = ( total_tx * 1000000 ) / us;
+
 	rtw_rxtx->n_per_sec = rtw_rx->n_per_sec + rtw_tx->n_per_sec;
+	rtw_rxtx->drop_per_sec = ( total_drop * 1000000 ) / us;
+	rtw_rxtx->total_per_sec = ( total_total * 1000000 ) / us;
 
 	ui_ncurses_update_graph(rtw_rx);
 	ui_ncurses_update_graph(rtw_tx);
@@ -321,6 +461,11 @@ int ui_ncurses_main(struct ncm_ui *ui)
 	raw();
 	keypad(stdscr, TRUE);
 	noecho();
+
+	if (has_colors()) {
+		start_color();
+		ui_init_colors();
+	}
 
 	/* Make the cursor invisible */
 	curs_set(0);
