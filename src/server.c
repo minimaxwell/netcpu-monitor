@@ -37,6 +37,8 @@ static void server_get_params(struct ncm_server *s)
 	struct ncm_message *msg;
 
 	msg = malloc(sizeof(*msg) + sizeof(s->params));
+	memset(msg, 0, sizeof(*msg) + sizeof(s->params));
+
 	msg->type = NCM_MSG_RESP_GET_PARAMS;
 	msg->len = sizeof(s->params);
 	memcpy(msg->buf, &s->params, sizeof(s->params));
@@ -77,6 +79,9 @@ static struct ncm_stat *server_get_stat_pcpu_rxtx(struct ncm_server *s)
 	if (!stat)
 		goto clean_stat;
 
+	memset(stat, 0, sizeof(*stat) + sizeof(*rxtx) +
+			rxtx->size * sizeof(struct ncm_stats_pcpu_rxtx_entry));
+
 	stat->type = NCM_STAT_PCPU_RXTX;
 	stat->size = sizeof(*rxtx) + rxtx->size *
 		     sizeof(struct ncm_stats_pcpu_rxtx_entry);
@@ -92,7 +97,7 @@ clean_stat:
 static void server_get_stat(struct ncm_server *s, struct ncm_stat_req *req)
 {
 	struct ncm_message *msg = NULL;
-	struct ncm_stat *stat;
+	struct ncm_stat *stat = NULL;
 
 	switch (req->type) {
 	case NCM_STAT_PCPU_RXTX:
@@ -216,6 +221,7 @@ int run_server(bool local, bool fork_to_background)
 	s = malloc(sizeof(*s));
 	if (!s)
 		return 0;
+	memset(s, 0, sizeof(*s));
 
 	s->local = local;
 

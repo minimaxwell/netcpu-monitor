@@ -67,6 +67,7 @@ struct ui_rxtx_graphs {
 };
 
 struct ui_ncurses {
+	pthread_mutex_t screen_mutex;
 	struct ui_rxtx_graphs graphs;
 	struct ui_coord coord;
 };
@@ -83,7 +84,7 @@ static void ui_init_colors(void) {
 
 static int ui_barsize_get(int window_width)
 {
-	int barsize = window_width - 32;
+	int barsize = window_width - 23;
 
 	if (barsize > 20)
 		barsize = 20;
@@ -99,36 +100,37 @@ int ui_bargraph_draw(WINDOW *w, struct ui_bargraph *bg)
 	n_bars = (bg->percent * barsize) / 100;
 	n_red_bars = (bg->true_percent * barsize) / 100;
 
+	wmove(w, bg->coord.y, bg->coord.x);
+
 	wattron(w, COLOR_PAIR(C_CYAN));
-	mvwprintw(w, bg->coord.y, bg->coord.x, " %s", bg->label);
+	wprintw(w, " %-2s ", bg->label);
 	wattroff(w, COLOR_PAIR(C_CYAN));
 
 	if (bg->drops)
 		wattron(w, COLOR_PAIR(C_YELLOW));
 
-	mvwaddch(w, bg->coord.y, bg->coord.x + 4, '[' | A_BOLD);
+	waddch(w, '[' | A_BOLD);
+	waddch(w, ' ');
 
 	for (i = 0; i < barsize; i++)
 		if (i < n_bars) {
-			mvwprintw(w, bg->coord.y, bg->coord.x + 6 + i, "|");
+			waddch(w, '|');
 		} else if (i < n_red_bars) {
-			wattron(w, COLOR_PAIR(C_RED));
-			mvwprintw(w, bg->coord.y, bg->coord.x + 6 + i, "|");
-			wattroff(w, COLOR_PAIR(C_RED));
+			waddch(w, '|' | COLOR_PAIR(C_RED));
 		} else {
-			mvwprintw(w, bg->coord.y, bg->coord.x + 6 + i, " ");
+			waddch(w, ' ');
 		}
 
-	mvwaddch(w, bg->coord.y, bg->coord.x + barsize + 7, ']' | A_BOLD);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 9, "     ");
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 9, "%d", bg->percent);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 13, "        ", bg->value);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 13, "%u", bg->value);
+	waddch(w, ' ');
+	waddch(w, ']' | A_BOLD);
+	waddch(w, ' ');
 
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 22, "     ");
+	wprintw(w, "%-3d", bg->percent);
+	waddch(w, ' ');
+	wprintw(w, "%-10u", bg->value);
 
 	if (bg->drops)
-		wattron(w, COLOR_PAIR(C_YELLOW));
+		wattroff(w, COLOR_PAIR(C_YELLOW));
 
 	return 0;
 }
@@ -148,13 +150,18 @@ static void ui_display_header(struct ncm_ui *ui)
 	wattron(stdscr, COLOR_PAIR(C_GREEN));
 	wprintw(stdscr, "%s", c->server_addr ? c->server_addr : "localhost");
 	wattroff(stdscr, COLOR_PAIR(C_GREEN));
+
+	wmove(stdscr, 2, 0);
+	wclrtoeol(stdscr);
+	wmove(stdscr, 0, 0);
 }
 
-static int ui_windows_init(struct ncm_ui *ui)
+static int ui_windows_draw(struct ncm_ui *ui)
 {
 	struct ui_ncurses *unc = (struct ui_ncurses *) ui->priv;
 	struct ui_rxtx_window *rtw;
 	struct ui_bargraph *bg;
+	struct ui_coord new_coord;
 	int i, j, barsize;
 	int n_cols = 1;
 	int header_height = 3;
@@ -163,7 +170,7 @@ static int ui_windows_init(struct ncm_ui *ui)
 	if (width > 53)
 		width = 53;
 
-	if (unc->coord.w >= width * 2)
+	if (unc->coord.w > width * 2)
 		n_cols = 2;
 
 	ui_display_header(ui);
@@ -171,26 +178,44 @@ static int ui_windows_init(struct ncm_ui *ui)
 	for (i = 0; i < UI_N_RXTX; i++) {
 		rtw = &unc->graphs.ui_rxtx_graphs[i];
 
-		rtw->coord.w = width;
-		rtw->coord.h = rtw->n_cpus + 3;
+		new_coord.w = width;
+		new_coord.h = rtw->n_cpus + 3;
 
 		/* Hack. I'm not good with responsive design */
-		rtw->coord.x = width * ( i % n_cols );
-		rtw->coord.y = rtw->coord.h * (i / n_cols) + header_height;
+		new_coord.x = width * ( i % n_cols ) + (i % n_cols);
+		new_coord.y = new_coord.h * (i / n_cols) + header_height;
 
-		barsize = ui_barsize_get(rtw->coord.w - 2);
+		barsize = ui_barsize_get(new_coord.w - 2);
 
-		rtw->win = newwin(rtw->coord.h, rtw->coord.w,
-				  rtw->coord.y, rtw->coord.x);
+		if (rtw->coord.x != new_coord.x ||
+		    rtw->coord.y != new_coord.y ||
+		    rtw->coord.w != new_coord.w ||
+		    rtw->coord.h != new_coord.h) {
 
+			rtw->coord = new_coord;
+
+			if (rtw->win) {
+				wclear(rtw->win);
+				wborder(rtw->win, ' ', ' ', ' ',' ',' ',' ',' ',' ');
+				wrefresh(rtw->win);
+				delwin(rtw->win);
+			}
+
+			rtw->win = newwin(rtw->coord.h, rtw->coord.w,
+					  rtw->coord.y, rtw->coord.x);
+		}
+
+		/* For some reason, there are glitches when resizing that forces
+		 * us to redraw menus and stuff at each iteration
+		 */
 		box(rtw->win, 0, 0);
 		mvwprintw(rtw->win, 0, 8, "%s traffic", rtw->label);
 
 		wattron(rtw->win, COLOR_PAIR(C_CYAN) | A_BOLD);
 
 		mvwprintw(rtw->win, 1, 1, "CPU");
-		mvwprintw(rtw->win, 1, barsize + 16, "%%");
-		mvwprintw(rtw->win, 1, barsize + 19, "pps");
+		mvwprintw(rtw->win, 1, barsize + 10, "%%");
+		mvwprintw(rtw->win, 1, barsize + 14, "pps");
 
 		wattroff(rtw->win, COLOR_PAIR(C_CYAN) | A_BOLD);
 
@@ -240,6 +265,7 @@ int ui_graphs_alloc(struct ncm_ui *ui)
 		graphs = malloc(rtw->n_cpus * sizeof(struct ui_bargraph));
 		if (!graphs)
 			return -1;
+		memset(graphs, 0, rtw->n_cpus * sizeof(struct ui_bargraph));
 
 		pcpu_counters = malloc(rtw->n_cpus * sizeof(uint64_t));
 		if (!pcpu_counters)
@@ -344,11 +370,7 @@ static int ui_ncurses_update_graph(struct ui_rxtx_window * rtw)
 
 		if (rtw->type == UI_RXTX)
 			bg->true_value = rtw->true_count[j];
-
-		ui_bargraph_draw(rtw->win, bg);
 	}
-
-	wrefresh(rtw->win);
 
 	return 0;
 }
@@ -407,6 +429,7 @@ static bool ui_ncurses_stop = false;
 static void * ui_ncurses_main_loop(void *priv)
 {
 	struct ncm_ui *ui = (struct ncm_ui *)priv;
+	struct ui_ncurses *unc = (struct ui_ncurses *) ui->priv;
 	struct ncm_stat_pcpu_rxtx *rxtx = NULL;
 	struct timespec ts;
 	int ret = 0;
@@ -428,7 +451,12 @@ static void * ui_ncurses_main_loop(void *priv)
 			goto clean;
 
 		/* do the thing */
+
+		pthread_mutex_lock(&unc->screen_mutex);
 		ui_ncurses_update_graphs(ui, rxtx, &ts);
+		ui_windows_draw(ui);
+		refresh();
+		pthread_mutex_unlock(&unc->screen_mutex);
 
 		usleep(100000);
 clean:
@@ -452,12 +480,14 @@ int ui_ncurses_main(struct ncm_ui *ui)
 	int width, height, ret;
 	pthread_t t;
 	pthread_attr_t attr;
+	pthread_mutexattr_t mutex_attr;
 
 	if (ui_graphs_alloc(ui))
 		return -1;
 
 	/* Initial ncurses configuration */
 	initscr();
+	clear();
 	raw();
 	keypad(stdscr, TRUE);
 	noecho();
@@ -478,7 +508,10 @@ int ui_ncurses_main(struct ncm_ui *ui)
 		goto cleanup;
 
 	refresh();
-	ui_windows_init(ui);
+	ui_windows_draw(ui);
+
+	pthread_mutexattr_init(&mutex_attr);
+	pthread_mutex_init(&unc->screen_mutex, &mutex_attr);
 
 	pthread_attr_init(&attr);
 	ret = pthread_create(&t, &attr, ui_ncurses_main_loop, ui);
@@ -486,7 +519,18 @@ int ui_ncurses_main(struct ncm_ui *ui)
 		goto cleanup;
 
 	/* Main loop */
-	getch();
+	while(getch() == KEY_RESIZE) {
+		clear();
+		getmaxyx(stdscr, height, width);
+
+		unc->coord.w = width;
+		unc->coord.h = height;
+
+		pthread_mutex_lock(&unc->screen_mutex);
+		ui_windows_draw(ui);
+		refresh();
+		pthread_mutex_unlock(&unc->screen_mutex);
+	}
 
 	ui_ncurses_stop = true;
 
