@@ -119,13 +119,13 @@ int ui_bargraph_draw(WINDOW *w, struct ui_bargraph *bg)
 			mvwprintw(w, bg->coord.y, bg->coord.x + 6 + i, " ");
 		}
 
-	mvwaddch(w, bg->coord.y, bg->coord.x + barsize + 13, ']' | A_BOLD);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "     ");
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 15, "%d", bg->percent);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 19, "        ", bg->value);
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 19, "%u", bg->value);
+	mvwaddch(w, bg->coord.y, bg->coord.x + barsize + 7, ']' | A_BOLD);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 9, "     ");
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 9, "%d", bg->percent);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 13, "        ", bg->value);
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 13, "%u", bg->value);
 
-	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 28, "    ");
+	mvwprintw(w, bg->coord.y, bg->coord.x + barsize + 22, "     ");
 
 	if (bg->drops)
 		wattron(w, COLOR_PAIR(C_YELLOW));
