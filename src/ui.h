@@ -37,4 +37,8 @@ void ui_destroy(struct ncm_ui *ui);
 int ui_run(struct ncm_ui *ui);
 int ui_set_param(struct ncm_ui *ui, void *param);
 
+/* For u32, we need to scale up to uin64_t temporarily */
+#define U32_PER_SEC(u32count, us) ( (uint64_t)(u32count) * 1000000 / (us))
+#define U64_PER_SEC(u64count, us) ( (u64count) * 1000000 / (us))
+
 #endif

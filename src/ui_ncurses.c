@@ -67,7 +67,6 @@ struct ui_rxtx_graphs {
 };
 
 struct ui_ncurses {
-	pthread_mutex_t screen_mutex;
 	struct ui_rxtx_graphs graphs;
 	struct ui_coord coord;
 };
@@ -398,24 +397,24 @@ static int ui_ncurses_update_graphs(struct ncm_ui *ui,
 		total_drop += rxtx->pcpu_pkts[j].drops;
 		total_total += rxtx->pcpu_pkts[j].total;
 
-		rtw_rx->pcpu_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].rx * 1000000 ) / us;
-		rtw_tx->pcpu_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].tx * 1000000 ) / us;
+		rtw_rx->pcpu_count[j] = U32_PER_SEC(rxtx->pcpu_pkts[j].rx, us);
+		rtw_tx->pcpu_count[j] = U32_PER_SEC(rxtx->pcpu_pkts[j].tx, us);
 		rtw_rxtx->pcpu_count[j] = rtw_rx->pcpu_count[j] + rtw_tx->pcpu_count[j];
-		rtw_rxtx->true_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].total * 1000000 ) / us;
+		rtw_rxtx->true_count[j] = U32_PER_SEC(rxtx->pcpu_pkts[j].total, us);
 
 		/* drop and total are only meaningful for rxtx, but we still need
 		 * to know if there's drop occuring on a socket*/
-		rtw_rx->drop_count[j] = ( (uint64_t)rxtx->pcpu_pkts[j].drops * 1000000 ) / us;
+		rtw_rx->drop_count[j] = U32_PER_SEC(rxtx->pcpu_pkts[j].drops, us);
 		rtw_tx->drop_count[j] = rtw_rx->drop_count[j];
 		rtw_rxtx->drop_count[j] = rtw_rx->drop_count[j];
 	}
 
-	rtw_rx->n_per_sec = ( total_rx * 1000000 ) / us;
-	rtw_tx->n_per_sec = ( total_tx * 1000000 ) / us;
+	rtw_rx->n_per_sec = U64_PER_SEC(total_rx, us);
+	rtw_tx->n_per_sec = U64_PER_SEC(total_tx, us);
 
 	rtw_rxtx->n_per_sec = rtw_rx->n_per_sec + rtw_tx->n_per_sec;
-	rtw_rxtx->drop_per_sec = ( total_drop * 1000000 ) / us;
-	rtw_rxtx->total_per_sec = ( total_total * 1000000 ) / us;
+	rtw_rxtx->drop_per_sec = U64_PER_SEC(total_drop, us);
+	rtw_rxtx->total_per_sec = U64_PER_SEC(total_total, us);
 
 	ui_ncurses_update_graph(rtw_rx);
 	ui_ncurses_update_graph(rtw_tx);
@@ -450,13 +449,7 @@ static void * ui_ncurses_main_loop(void *priv)
 		if (ui_ncurses_stop)
 			goto clean;
 
-		/* do the thing */
-
-		pthread_mutex_lock(&unc->screen_mutex);
 		ui_ncurses_update_graphs(ui, rxtx, &ts);
-		ui_windows_draw(ui);
-		refresh();
-		pthread_mutex_unlock(&unc->screen_mutex);
 
 		usleep(100000);
 clean:
@@ -477,10 +470,9 @@ clean:
 int ui_ncurses_main(struct ncm_ui *ui)
 {
 	struct ui_ncurses *unc = (struct ui_ncurses *) ui->priv;
-	int width, height, ret;
+	int width, height, ret, key;
 	pthread_t t;
 	pthread_attr_t attr;
-	pthread_mutexattr_t mutex_attr;
 
 	if (ui_graphs_alloc(ui))
 		return -1;
@@ -491,6 +483,8 @@ int ui_ncurses_main(struct ncm_ui *ui)
 	raw();
 	keypad(stdscr, TRUE);
 	noecho();
+	/* getch timeouts in 10ms */
+	timeout(10);
 
 	if (has_colors()) {
 		start_color();
@@ -510,26 +504,31 @@ int ui_ncurses_main(struct ncm_ui *ui)
 	refresh();
 	ui_windows_draw(ui);
 
-	pthread_mutexattr_init(&mutex_attr);
-	pthread_mutex_init(&unc->screen_mutex, &mutex_attr);
-
+	/* Create the worker thread that will update the values used by the
+	 * UI.
+	 */
 	pthread_attr_init(&attr);
 	ret = pthread_create(&t, &attr, ui_ncurses_main_loop, ui);
 	if (ret)
 		goto cleanup;
 
 	/* Main loop */
-	while(getch() == KEY_RESIZE) {
-		clear();
-		getmaxyx(stdscr, height, width);
+	while(true) {
+		key = getch();
 
-		unc->coord.w = width;
-		unc->coord.h = height;
+		if (key == KEY_RESIZE) {
+			getmaxyx(stdscr, height, width);
+			if (height != unc->coord.h || width != unc->coord.w) {
+				clear();
+				unc->coord.w = width;
+				unc->coord.h = height;
+			}
+		}
 
-		pthread_mutex_lock(&unc->screen_mutex);
 		ui_windows_draw(ui);
 		refresh();
-		pthread_mutex_unlock(&unc->screen_mutex);
+		if (key == 'Q' || key == 'q')
+			break;
 	}
 
 	ui_ncurses_stop = true;

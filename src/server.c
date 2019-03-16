@@ -243,11 +243,12 @@ int run_server(bool local, bool fork_to_background)
 		pid = fork();
 		if (pid < 0) {
 			ret = -1;
-			goto server_free;
+			goto connector_free;
 		}
 
 		if (pid > 0) {
-			return 1;
+			ret = 1;
+			goto connector_free;
 		}
 
 		/* Detach from controlling tty */
@@ -259,23 +260,23 @@ int run_server(bool local, bool fork_to_background)
 	sigfillset(&sa.sa_mask);
 
 	if (sigaction(SIGINT, &sa, NULL))
-		goto server_free;
+		goto connector_free;
 
 	if (sigaction(SIGTERM, &sa, NULL))
-		goto server_free;
+		goto connector_free;
 
 	if (server_get_cpu_params(s))
-		goto server_free;
+		goto connector_free;
 
 	s->mon = monitor_create(s->params.n_cpus);
 	if (!s->mon)
-		goto server_free;
+		goto connector_free;
 
 	ret = server_main_loop(s);
 
-	connector_destroy(s->con);
 	monitor_destroy(s->mon);
-
+connector_free:
+	connector_destroy(s->con);
 server_free:
 	free(s);
 	return ret;
