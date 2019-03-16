@@ -69,7 +69,7 @@ static int client_get_srv_parameters(struct ncm_client *c,
 		return ret;
 	}
 
-	response = connector_receive(c->con);
+	response = connector_receive(c->con, 1);
 	if (!response)
 		return -1;
 
@@ -161,7 +161,7 @@ static struct ncm_stat *client_get_srv_stat(struct ncm_client *c,
 		goto err_req;
 	}
 
-	response = connector_receive(c->con);
+	response = connector_receive(c->con, 1);
 	if (!response)
 		goto err_req;
 

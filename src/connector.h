@@ -53,6 +53,6 @@ int connector_connect(struct ncm_connector *con);
 
 int connector_send(struct ncm_connector *con, struct ncm_message *msg);
 
-struct ncm_message *connector_receive(struct ncm_connector *con);
+struct ncm_message *connector_receive(struct ncm_connector *con, int timeout);
 
 #endif

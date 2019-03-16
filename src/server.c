@@ -139,7 +139,7 @@ static int server_main_loop(struct ncm_server *s)
 		fprintf(stdout, "Incoming connection\n");
 
 		while (connector_is_link_ok(s->con) && !server_stop) {
-			msg = connector_receive(s->con);
+			msg = connector_receive(s->con, 0);
 			if (!msg)
 				continue;
 

@@ -228,9 +228,10 @@ int connector_send(struct ncm_connector *con, struct ncm_message *msg)
 }
 
 /* Blocking until a message is received */
-struct ncm_message *connector_receive(struct ncm_connector *con)
+struct ncm_message *connector_receive(struct ncm_connector *con, int timeout)
 {
 	struct ncm_message *msg_head = NULL, *msg = NULL;
+	struct timeval tv;
 	int n;
 
 	if (!con->status)
@@ -240,6 +241,10 @@ struct ncm_message *connector_receive(struct ncm_connector *con)
 	msg_head = malloc(sizeof(*msg_head));
 	if (!msg_head)
 		return NULL;
+
+	tv.tv_sec = timeout;
+	tv.tv_usec = 0;
+	setsockopt(con->confd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 
 	n = recv(con->confd, msg_head, sizeof(*msg_head), 0);
 	if (n == 0)
