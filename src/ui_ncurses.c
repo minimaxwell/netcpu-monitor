@@ -428,7 +428,6 @@ static bool ui_ncurses_stop = false;
 static void * ui_ncurses_main_loop(void *priv)
 {
 	struct ncm_ui *ui = (struct ncm_ui *)priv;
-	struct ui_ncurses *unc = (struct ui_ncurses *) ui->priv;
 	struct ncm_stat_pcpu_rxtx *rxtx = NULL;
 	struct timespec ts;
 	int ret = 0;
