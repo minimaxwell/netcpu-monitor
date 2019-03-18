@@ -25,19 +25,27 @@ struct ncm_stat_pcpu_rxtx {
 	struct ncm_stats_pcpu_rxtx_entry pcpu_pkts[0];
 };
 
-struct ncm_stat_link {
+/* Link request */
+struct ncm_stat_link_req {
+	char iface[16];
+};
+
+struct ncm_stat_link_info {
 	uint32_t link_state;
-	uint32_t link_speed;
-};
-
-struct ncm_stat_global_stats {
-	uint64_t pkts_tx;
-	uint64_t pkts_rx;
-};
-
-struct ncm_stat_link_abilities {
+	uint32_t link_speed; /* in mbps, if available */
+	uint32_t n_rxqs;
+	uint32_t n_txqs;
 	uint32_t can_rss:1;
 	uint32_t can_ntuple:1;
+};
+
+/* Per-link stats reply */
+struct ncm_stat_link_global_stats {
+	uint64_t pkts_tx;
+	uint64_t pkts_rx;
+	uint64_t bits_tx;
+	uint64_t bits_rx;
+	uint64_t drops;
 };
 
 struct ncm_stat {

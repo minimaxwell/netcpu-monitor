@@ -50,6 +50,13 @@ static void server_get_params(struct ncm_server *s)
 	free(msg);
 }
 
+/* Returns a ncm_stat_link_info encapsulated into an ncm_stat */
+static struct ncm_stat *server_get_stat_link_info(struct ncm_server *s,
+						  struct ncm_stat_link_req *req)
+{
+	return NULL;
+}
+
 static void server_start_cap(struct ncm_server *s, struct ncm_parameters *p)
 {
 	if (ncm_monitor_start_cap(s->mon, p))
